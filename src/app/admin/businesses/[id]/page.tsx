@@ -3,11 +3,12 @@ import { notFound } from "next/navigation";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { requireAdmin } from "@/lib/auth/guards";
 import { db } from "@/lib/db/client";
-import { businesses, eventLogs, handoffs, messages, metaConnections, orders, users } from "@/lib/db/schema";
+import { botSettings, businesses, eventLogs, handoffs, messages, metaConnections, orders, users } from "@/lib/db/schema";
 import { estimateSavings } from "@/lib/plans";
 import { maskToken } from "@/lib/crypto";
+import { analyzeOldChatsAction } from "@/lib/actions/tools";
 import { Badge, Card, Stat } from "@/components/ui";
-import { AdminBusinessForm, ManualConnectionForm } from "./forms";
+import { AdminBusinessForm, ManualConnectionForm, TelegramTestButton } from "./forms";
 
 export default async function AdminBusinessDetail({ params }: { params: Promise<{ id: string }> }) {
   await requireAdmin();
@@ -32,6 +33,7 @@ export default async function AdminBusinessDetail({ params }: { params: Promise<
     .from(handoffs)
     .where(and(eq(handoffs.businessId, id), eq(handoffs.status, "open")));
   const connections = await d.select().from(metaConnections).where(eq(metaConnections.businessId, id));
+  const [settings] = await d.select().from(botSettings).where(eq(botSettings.businessId, id)).limit(1);
   const logs = await d.select().from(eventLogs).where(eq(eventLogs.businessId, id)).orderBy(desc(eventLogs.createdAt)).limit(10);
   const savings = estimateSavings(msg?.ai ?? 0);
   const handoffRate = (msg?.n ?? 0) > 0 ? Math.round(((handoffOpen?.n ?? 0) / (msg?.n ?? 1)) * 100) : 0;
@@ -98,6 +100,31 @@ export default async function AdminBusinessDetail({ params }: { params: Promise<
           <ManualConnectionForm businessId={biz.id} />
         </div>
       </section>
+
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-semibold">Old-chats analysis & tools</h2>
+            <p className="text-sm text-[var(--ink-soft)]">
+              {settings?.oldChatsAnalyzedAt
+                ? `Last generated ${settings.oldChatsAnalyzedAt.toISOString().replace("T", " ").slice(0, 16)}`
+                : "Never generated — runs one cheap batched AI call and caches the result."}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <form action={analyzeOldChatsAction}>
+              <input type="hidden" name="businessId" value={biz.id} />
+              <button className="btn-primary rounded-xl px-4 py-2 text-sm font-medium">Analyze old chats</button>
+            </form>
+            <TelegramTestButton businessId={biz.id} />
+          </div>
+        </div>
+        {settings?.oldChatsSummary && (
+          <p className="mt-3 whitespace-pre-wrap rounded-xl border border-[var(--card-border)] bg-white/60 p-3 text-sm text-[var(--ink-soft)]">
+            {settings.oldChatsSummary}
+          </p>
+        )}
+      </Card>
 
       <Card>
         <h2 className="font-semibold">Recent logs</h2>

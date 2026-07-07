@@ -2,6 +2,7 @@
 
 import { useActionState } from "react";
 import { adminManualConnectionAction, adminUpdateBusinessAction } from "@/lib/actions/admin";
+import { telegramTestAction } from "@/lib/actions/tools";
 import type { ActionState } from "@/lib/actions/business";
 import { Button, Card, ErrorNote, Input, Label } from "@/components/ui";
 
@@ -92,6 +93,20 @@ export function AdminBusinessForm({
         </Button>
       </form>
     </Card>
+  );
+}
+
+export function TelegramTestButton({ businessId }: { businessId: string }) {
+  const [state, formAction, pending] = useActionState<{ ok?: boolean; error?: string }, FormData>(telegramTestAction, {});
+  return (
+    <form action={formAction} className="inline-flex items-center gap-2">
+      <input type="hidden" name="businessId" value={businessId} />
+      <Button type="submit" variant="ghost" disabled={pending}>
+        {pending ? "Sending…" : "Send Telegram test"}
+      </Button>
+      {state.ok && <span className="text-sm text-emerald-600">Sent ✓</span>}
+      {state.error && <span className="text-sm text-rose-600">{state.error}</span>}
+    </form>
   );
 }
 

@@ -85,6 +85,7 @@ export const CLIENT_NAV: NavItem[] = [
   { href: "/app/orders", label: "Orders", icon: "🛒" },
   { href: "/app/handoff", label: "Handoff", icon: "🙋" },
   { href: "/app/analytics", label: "Analytics", icon: "📈" },
+  { href: "/app/test", label: "Test bot", icon: "🧪" },
   { href: "/app/plan", label: "Plan", icon: "💳" },
   { href: "/app/settings", label: "Settings", icon: "⚙️" }
 ];
