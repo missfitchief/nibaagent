@@ -1,26 +1,180 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg: #f6fbfd;
+  --ink: #0b2233;
+  --ink-soft: #4a6274;
+  --brand-1: #06b6d4; /* cyan */
+  --brand-2: #3b82f6; /* blue */
+  --brand-3: #10b981; /* emerald */
+  --card: rgba(255, 255, 255, 0.72);
+  --card-border: rgba(13, 148, 200, 0.14);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-bg: var(--bg);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-brand1: var(--brand-1);
+  --color-brand2: var(--brand-2);
+  --color-brand3: var(--brand-3);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  scroll-behavior: smooth;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---- Ambient animated background ---- */
+.niba-ambient {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+.niba-ambient::before,
+.niba-ambient::after {
+  content: "";
+  position: absolute;
+  width: 60vmax;
+  height: 60vmax;
+  border-radius: 50%;
+  filter: blur(90px);
+  opacity: 0.35;
+  animation: drift 26s ease-in-out infinite alternate;
+}
+.niba-ambient::before {
+  background: radial-gradient(circle at 30% 30%, #7dd3fc, transparent 60%);
+  top: -20vmax;
+  left: -15vmax;
+}
+.niba-ambient::after {
+  background: radial-gradient(circle at 70% 70%, #6ee7b7, transparent 60%);
+  bottom: -25vmax;
+  right: -15vmax;
+  animation-delay: -13s;
+}
+@keyframes drift {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  to {
+    transform: translate3d(6vmax, 4vmax, 0) scale(1.15);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .niba-ambient::before,
+  .niba-ambient::after {
+    animation: none;
+  }
+}
+
+/* ---- Glass card ---- */
+.glass {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  backdrop-filter: blur(14px);
+  box-shadow:
+    0 1px 2px rgba(9, 60, 90, 0.05),
+    0 12px 40px -18px rgba(8, 112, 160, 0.25);
+  border-radius: 1.25rem;
+}
+.glass-strong {
+  background: rgba(255, 255, 255, 0.9);
+}
+
+/* ---- Gradient text & buttons ---- */
+.grad-text {
+  background: linear-gradient(100deg, var(--brand-2), var(--brand-1) 55%, var(--brand-3));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.btn-primary {
+  background: linear-gradient(100deg, var(--brand-2), var(--brand-1));
+  color: #fff;
+  box-shadow: 0 8px 24px -10px rgba(14, 132, 199, 0.55);
+  transition: transform 0.15s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+.btn-primary:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.05);
+  box-shadow: 0 12px 30px -10px rgba(14, 132, 199, 0.65);
+}
+.btn-primary:active {
+  transform: translateY(0);
+}
+
+/* ---- Soft glow ring for status ---- */
+.glow-ok {
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15), 0 0 18px rgba(16, 185, 129, 0.35);
+}
+.glow-warn {
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15), 0 0 18px rgba(245, 158, 11, 0.3);
+}
+
+/* ---- Micro transitions ---- */
+.rise {
+  transition: transform 0.18s ease, box-shadow 0.25s ease;
+}
+.rise:hover {
+  transform: translateY(-2px);
+}
+
+/* ---- Chat demo bubbles ---- */
+.bubble-in {
+  animation: bubbleIn 0.35s ease both;
+}
+@keyframes bubbleIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.typing-dot {
+  animation: typing 1.1s infinite ease-in-out;
+}
+.typing-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.typing-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes typing {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+/* ---- Skeleton ---- */
+.skeleton {
+  background: linear-gradient(90deg, #e8f2f7 25%, #f4fafc 50%, #e8f2f7 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+  border-radius: 0.75rem;
+}
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
 }
