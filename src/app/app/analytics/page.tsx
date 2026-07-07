@@ -11,11 +11,10 @@ export default async function AnalyticsPage() {
   const business = await ownBusiness(user);
   if (!business) redirect("/app/onboarding");
   const d = db();
-  const since = new Date(Date.now() - 29 * 86400_000);
-  since.setHours(0, 0, 0, 0);
 
   // Daily message/AI-reply counts for the last 30 days (computed live; the
   // analytics_daily table is filled by n8n/nightly rollup for heavy accounts).
+  // The date window is computed in SQL so the render stays pure.
   const daily = await d
     .select({
       day: sql<string>`to_char(${messages.createdAt}, 'YYYY-MM-DD')`,
@@ -23,7 +22,7 @@ export default async function AnalyticsPage() {
       ai: sql<number>`count(*) filter (where ${messages.aiGenerated})::int`
     })
     .from(messages)
-    .where(and(eq(messages.businessId, business.id), gte(messages.createdAt, since)))
+    .where(and(eq(messages.businessId, business.id), gte(messages.createdAt, sql`now() - interval '30 days'`)))
     .groupBy(sql`1`)
     .orderBy(sql`1`);
 

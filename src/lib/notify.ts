@@ -29,7 +29,9 @@ export async function sendTelegram(chatId: string, text: string): Promise<Notify
   }
 }
 
-export async function sendWhatsApp(_target: string, _text: string): Promise<NotifyResult> {
+export async function sendWhatsApp(target: string, text: string): Promise<NotifyResult> {
+  void target;
+  void text;
   if (!env().WHATSAPP_PROVIDER_API_KEY) return { ok: false, error: "WhatsApp provider not configured" };
   // TODO: wire an actual provider (Twilio/360dialog) when a key is chosen.
   return { ok: false, error: "WhatsApp provider integration pending" };
