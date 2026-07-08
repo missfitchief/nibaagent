@@ -107,6 +107,19 @@ export const invites = pgTable(
   (t) => [index("invites_business_idx").on(t.businessId), index("invites_email_idx").on(t.email)]
 );
 
+/**
+ * Global platform settings (Meta app creds, default keys/models, etc.).
+ * Resolution is DB row → env var → missing (see lib/platform.ts). Secret
+ * values are AES-GCM encrypted; non-secrets stored plaintext. One row per key.
+ */
+export const platformSettings = pgTable("platform_settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull().default(""),
+  isSecret: boolean("is_secret").notNull().default(false),
+  lastFour: text("last_four").notNull().default(""),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+});
+
 export const STOCK_STATUSES = ["available", "unavailable", "unknown"] as const;
 export type StockStatus = (typeof STOCK_STATUSES)[number];
 
@@ -315,7 +328,9 @@ export const knowledgeSources = pgTable(
     businessId: uuid("business_id")
       .notNull()
       .references(() => businesses.id),
-    type: text("type", { enum: ["faq", "manual", "url", "pdf", "doc", "sheet", "old_chats", "products"] }).notNull(),
+    type: text("type", {
+      enum: ["faq", "manual", "url", "pdf", "doc", "sheet", "old_chats", "products", "website", "about", "policy", "delivery", "payment", "returns", "contact"]
+    }).notNull(),
     title: text("title").notNull().default(""),
     content: text("content").notNull().default(""),
     sourceUrl: text("source_url").notNull().default(""),
@@ -358,6 +373,18 @@ export const botSettings = pgTable("bot_settings", {
     .default(["reklamacija", "kasni", "problem", "ljut", "agent", "čovek", "covek", "podrška", "podrska", "hitno"]),
   faq: jsonb("faq").notNull().default([]),
   customInstructions: text("custom_instructions").notNull().default(""),
+  /** AI provider + strategy (launch mode lives on businesses.ai_mode). All USED by the engine. */
+  aiProvider: text("ai_provider", { enum: ["openai", "anthropic"] }).notNull().default("openai"),
+  aiStrategy: text("ai_strategy", { enum: ["rules_first", "balanced", "ai_heavy"] }).notNull().default("rules_first"),
+  persiranje: boolean("persiranje").notNull().default(true),
+  imageRecognitionEnabled: boolean("image_recognition_enabled").notNull().default(true),
+  replyDelaySeconds: integer("reply_delay_seconds").notNull().default(0),
+  /** What the bot does when it has no grounded answer. All USED by the engine. */
+  unknownBehavior: text("unknown_behavior", { enum: ["offer_handoff", "ask_rephrase", "generic_help"] }).notNull().default("offer_handoff"),
+  /** Match confidence (0-100) below which the bot treats a product query as "unknown". */
+  handoffThreshold: integer("handoff_threshold").notNull().default(40),
+  /** { enabled, openHour, closeHour, days:[0-6], offHoursMessage }. Engine checks before replying live. */
+  businessHours: jsonb("business_hours").notNull().default({ enabled: false }),
   /** Cached style/knowledge summary produced by "Analyze old chats". */
   oldChatsSummary: text("old_chats_summary").notNull().default(""),
   oldChatsAnalyzedAt: timestamp("old_chats_analyzed_at", { withTimezone: true }),

@@ -1,7 +1,19 @@
 import "server-only";
 import { db } from "./db/client";
 import { eventLogs } from "./db/schema";
-import { env } from "./env";
+import { resolvePlatform } from "./platform";
+
+/** Resolved Meta app credentials (DB platform setting → env fallback). */
+export async function metaCreds(): Promise<{ appId: string; appSecret: string }> {
+  const [appId, appSecret] = await Promise.all([resolvePlatform("META_APP_ID"), resolvePlatform("META_APP_SECRET")]);
+  return { appId: appId.value, appSecret: appSecret.value };
+}
+
+/** Resolved OAuth redirect URI from the resolved APP_URL. */
+export async function resolvedRedirectUri(): Promise<string> {
+  const appUrl = (await resolvePlatform("APP_URL")).value || "http://localhost:3000";
+  return `${appUrl.replace(/\/$/, "")}/api/meta/callback`;
+}
 
 /**
  * Graph API helpers for the OAuth connect flow. Battle-tested details baked
@@ -39,23 +51,23 @@ async function gfetch<T>(url: string): Promise<T> {
 }
 
 export async function exchangeCodeForToken(code: string, redirectUri: string): Promise<string> {
-  const e = env();
+  const { appId, appSecret } = await metaCreds();
   const data = await gfetch<{ access_token: string }>(
-    `${G}/oauth/access_token?client_id=${e.META_APP_ID}&client_secret=${e.META_APP_SECRET}&redirect_uri=${encodeURIComponent(redirectUri)}&code=${encodeURIComponent(code)}`
+    `${G}/oauth/access_token?client_id=${appId}&client_secret=${appSecret}&redirect_uri=${encodeURIComponent(redirectUri)}&code=${encodeURIComponent(code)}`
   );
   return data.access_token;
 }
 
 export async function toLongLivedToken(shortToken: string): Promise<string> {
-  const e = env();
+  const { appId, appSecret } = await metaCreds();
   const data = await gfetch<{ access_token: string }>(
-    `${G}/oauth/access_token?grant_type=fb_exchange_token&client_id=${e.META_APP_ID}&client_secret=${e.META_APP_SECRET}&fb_exchange_token=${encodeURIComponent(shortToken)}`
+    `${G}/oauth/access_token?grant_type=fb_exchange_token&client_id=${appId}&client_secret=${appSecret}&fb_exchange_token=${encodeURIComponent(shortToken)}`
   );
   return data.access_token;
 }
 
 export async function fetchGrantedPages(userToken: string): Promise<GraphPage[]> {
-  const e = env();
+  const { appId, appSecret } = await metaCreds();
   // Primary: /me/accounts
   const accounts = await gfetch<{ data?: GraphPage[] }>(
     `${G}/me/accounts?fields=id,name,access_token,instagram_business_account&access_token=${encodeURIComponent(userToken)}`
@@ -63,7 +75,7 @@ export async function fetchGrantedPages(userToken: string): Promise<GraphPage[]>
   if (accounts.data?.length) return accounts.data;
 
   // Fallback: granular scopes → direct page queries (task-access quirk).
-  const appToken = `${e.META_APP_ID}|${e.META_APP_SECRET}`;
+  const appToken = `${appId}|${appSecret}`;
   const debug = await gfetch<{ data?: { granular_scopes?: Array<{ scope: string; target_ids?: string[] }> } }>(
     `${G}/debug_token?input_token=${encodeURIComponent(userToken)}&access_token=${encodeURIComponent(appToken)}`
   );

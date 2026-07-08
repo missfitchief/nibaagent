@@ -6,6 +6,8 @@ import { z } from "zod";
 import { db } from "../db/client";
 import { botSettings, businesses } from "../db/schema";
 import { requireBusiness } from "../auth/guards";
+import { sanitizeModel, isProvider } from "../models";
+import type { BusinessHours } from "../hours";
 import type { ActionState } from "./business";
 
 const TONES = ["professional", "friendly", "luxury", "casual", "short", "detailed"] as const;
@@ -16,32 +18,67 @@ const BotSettingsInput = z.object({
   customInstructions: z.string().max(4000).default(""),
   orderCollectionEnabled: z.coerce.boolean().default(false),
   orderPrompt: z.string().max(2000).default(""),
-  handoffWords: z.string().max(1000).default("")
+  handoffWords: z.string().max(1000).default(""),
+  // model/provider are optional — only submitted when the model picker is shown
+  aiProvider: z.string().optional(),
+  selectedModel: z.string().max(120).optional(),
+  aiStrategy: z.enum(["rules_first", "balanced", "ai_heavy"]).default("rules_first"),
+  persiranje: z.coerce.boolean().default(false),
+  imageRecognitionEnabled: z.coerce.boolean().default(false),
+  replyDelaySeconds: z.coerce.number().int().min(0).max(600).default(0),
+  unknownBehavior: z.enum(["offer_handoff", "ask_rephrase", "generic_help"]).default("offer_handoff"),
+  handoffThreshold: z.coerce.number().int().min(0).max(100).default(40),
+  businessHoursEnabled: z.coerce.boolean().default(false),
+  openHour: z.coerce.number().int().min(0).max(23).optional(),
+  closeHour: z.coerce.number().int().min(0).max(24).optional(),
+  offHoursMessage: z.string().max(500).optional()
 });
 
 export async function updateBotSettingsAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const parsed = BotSettingsInput.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: "Invalid input." };
-  const { business } = await requireBusiness(parsed.data.businessId); // authz chokepoint
+  const d = parsed.data;
+  const { business } = await requireBusiness(d.businessId); // authz chokepoint
 
-  const words = parsed.data.handoffWords
+  const words = d.handoffWords
     .split(/[,\n]/)
     .map((w) => w.trim().toLowerCase())
     .filter(Boolean)
     .slice(0, 50);
 
+  const hours: BusinessHours = {
+    enabled: d.businessHoursEnabled,
+    openHour: d.openHour ?? 9,
+    closeHour: d.closeHour ?? 21,
+    offHoursMessage: (d.offHoursMessage ?? "").trim()
+  };
+
   await db()
     .update(botSettings)
     .set({
-      tone: parsed.data.tone,
-      customInstructions: parsed.data.customInstructions,
-      orderCollectionEnabled: parsed.data.orderCollectionEnabled,
-      orderPrompt: parsed.data.orderPrompt,
+      tone: d.tone,
+      customInstructions: d.customInstructions,
+      orderCollectionEnabled: d.orderCollectionEnabled,
+      orderPrompt: d.orderPrompt,
       handoffWords: words.length ? words : undefined,
+      aiStrategy: d.aiStrategy,
+      persiranje: d.persiranje,
+      imageRecognitionEnabled: d.imageRecognitionEnabled,
+      replyDelaySeconds: d.replyDelaySeconds,
+      unknownBehavior: d.unknownBehavior,
+      handoffThreshold: d.handoffThreshold,
+      businessHours: hours,
+      ...(isProvider(d.aiProvider ?? "") ? { aiProvider: d.aiProvider as "openai" | "anthropic" } : {}),
       updatedAt: new Date()
     })
     .where(eq(botSettings.businessId, business.id));
-  await db().update(businesses).set({ tone: parsed.data.tone, updatedAt: new Date() }).where(eq(businesses.id, business.id));
+
+  // Model lives on businesses; only overwrite when the picker submitted one.
+  const model = sanitizeModel(d.selectedModel);
+  await db()
+    .update(businesses)
+    .set({ tone: d.tone, ...(model ? { selectedModel: model } : {}), updatedAt: new Date() })
+    .where(eq(businesses.id, business.id));
   revalidatePath("/app/bot");
   return { ok: true };
 }

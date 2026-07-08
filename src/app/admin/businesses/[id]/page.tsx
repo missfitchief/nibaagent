@@ -25,6 +25,7 @@ import { deleteKnowledgeAction } from "@/lib/actions/knowledge";
 import { BotSettingsForm } from "@/app/app/bot/form";
 import { KnowledgeForm } from "@/app/app/knowledge/form";
 import { IngestPanel } from "@/app/app/knowledge/ingest";
+import { WebsiteKnowledgeForm } from "@/app/app/knowledge/website";
 import { listMembers, removeMemberAction } from "@/lib/actions/members";
 import { deleteProductAction, toggleProductAction } from "@/lib/actions/products";
 import { resolveHandoffAction, setOrderStatusAction } from "@/lib/actions/inbox";
@@ -39,9 +40,11 @@ import {
 } from "@/lib/actions/danger";
 import { Badge, Card, Stat } from "@/components/ui";
 import { ProductForm } from "@/app/app/products/form";
+import { ImportPanel } from "@/app/app/products/import-panel";
 import { InviteForm } from "@/app/app/team/form";
 import { SecretsPanel } from "@/app/app/settings/secrets";
 import { AdminBusinessForm, DeleteBusinessForm, ManualConnectionForm, TelegramTestButton } from "./forms";
+import type { BusinessHours } from "@/lib/hours";
 
 const TABS = [
   "overview",
@@ -167,6 +170,7 @@ export default async function AdminBusinessDetail({
 
       {tab === "products" && (
         <>
+          <ImportPanel businessId={biz.id} />
           <ProductForm businessId={biz.id} />
           {productRows.length === 0 ? (
             <Card><p className="text-sm text-[var(--ink-soft)]">No products for this business yet.</p></Card>
@@ -308,6 +312,7 @@ export default async function AdminBusinessDetail({
               status: biz.status,
               aiMode: biz.aiMode,
               handoffEnabled: biz.handoffEnabled,
+              aiProvider: settings?.aiProvider ?? "openai",
               selectedModel: biz.selectedModel,
               dailyMessageLimit: biz.dailyMessageLimit,
               monthlyMessageLimit: biz.monthlyMessageLimit,
@@ -316,12 +321,22 @@ export default async function AdminBusinessDetail({
           />
           <BotSettingsForm
             businessId={biz.id}
+            showModelPicker={false}
             defaults={{
               tone: settings?.tone ?? "friendly",
               customInstructions: settings?.customInstructions ?? "",
               orderCollectionEnabled: settings?.orderCollectionEnabled ?? true,
               orderPrompt: settings?.orderPrompt ?? "",
-              handoffWords: ((settings?.handoffWords as string[]) ?? []).join(", ")
+              handoffWords: ((settings?.handoffWords as string[]) ?? []).join(", "),
+              aiProvider: settings?.aiProvider ?? "openai",
+              selectedModel: biz.selectedModel,
+              aiStrategy: settings?.aiStrategy ?? "rules_first",
+              persiranje: settings?.persiranje ?? true,
+              imageRecognitionEnabled: settings?.imageRecognitionEnabled ?? true,
+              replyDelaySeconds: settings?.replyDelaySeconds ?? 0,
+              unknownBehavior: settings?.unknownBehavior ?? "offer_handoff",
+              handoffThreshold: settings?.handoffThreshold ?? 40,
+              businessHours: (settings?.businessHours as BusinessHours) ?? { enabled: false }
             }}
           />
         </>
@@ -330,6 +345,7 @@ export default async function AdminBusinessDetail({
       {tab === "knowledge" && (
         <>
           <KnowledgeForm businessId={biz.id} />
+          <WebsiteKnowledgeForm businessId={biz.id} />
           <IngestPanel businessId={biz.id} />
           {knowledgeRows.length > 0 && (
             <Card>
@@ -535,6 +551,7 @@ export default async function AdminBusinessDetail({
             status: biz.status,
             aiMode: biz.aiMode,
             handoffEnabled: biz.handoffEnabled,
+            aiProvider: settings?.aiProvider ?? "openai",
             selectedModel: biz.selectedModel,
             dailyMessageLimit: biz.dailyMessageLimit,
             monthlyMessageLimit: biz.monthlyMessageLimit,

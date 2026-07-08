@@ -6,6 +6,7 @@ import { ownBusiness, requireUser } from "@/lib/auth/guards";
 import { setAiModeAction } from "@/lib/actions/settings";
 import { Badge, Card } from "@/components/ui";
 import { BotSettingsForm } from "./form";
+import type { BusinessHours } from "@/lib/hours";
 
 export default async function BotSettingsPage() {
   const user = await requireUser();
@@ -54,7 +55,16 @@ export default async function BotSettingsPage() {
           customInstructions: settings?.customInstructions ?? "",
           orderCollectionEnabled: settings?.orderCollectionEnabled ?? true,
           orderPrompt: settings?.orderPrompt ?? "",
-          handoffWords: ((settings?.handoffWords as string[]) ?? []).join(", ")
+          handoffWords: ((settings?.handoffWords as string[]) ?? []).join(", "),
+          aiProvider: settings?.aiProvider ?? "openai",
+          selectedModel: business.selectedModel,
+          aiStrategy: settings?.aiStrategy ?? "rules_first",
+          persiranje: settings?.persiranje ?? true,
+          imageRecognitionEnabled: settings?.imageRecognitionEnabled ?? true,
+          replyDelaySeconds: settings?.replyDelaySeconds ?? 0,
+          unknownBehavior: settings?.unknownBehavior ?? "offer_handoff",
+          handoffThreshold: settings?.handoffThreshold ?? 40,
+          businessHours: (settings?.businessHours as BusinessHours) ?? { enabled: false }
         }}
       />
     </main>

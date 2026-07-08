@@ -5,6 +5,7 @@ import { listProducts } from "@/lib/products";
 import { Badge, Card, EmptyState } from "@/components/ui";
 import { deleteProductAction, toggleProductAction } from "@/lib/actions/products";
 import { ProductForm } from "./form";
+import { ImportPanel } from "./import-panel";
 
 export default async function ProductsPage({
   searchParams
@@ -27,6 +28,8 @@ export default async function ProductsPage({
           Your catalog. The bot answers price / stock / colors / sizes from here — never invented. {all.length} products.
         </p>
       </header>
+
+      <ImportPanel businessId={business.id} />
 
       <ProductForm businessId={business.id} />
 

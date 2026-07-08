@@ -20,8 +20,26 @@ export interface IngestState {
 const Ingest = z.object({
   businessId: z.string().uuid(),
   title: z.string().max(120).default("Imported knowledge"),
-  content: z.string().min(1).max(200000)
+  content: z.string().max(200000).default("")
 });
+
+/** Read an uploaded .txt file's text. PDF/DOCX are rejected (coming soon). */
+async function readUploadedText(formData: FormData): Promise<{ text: string; error?: string }> {
+  const f = formData.get("file");
+  if (!f || typeof f === "string") return { text: "" };
+  const file = f as File;
+  if (file.size === 0) return { text: "" };
+  const name = file.name.toLowerCase();
+  if (name.endsWith(".pdf") || name.endsWith(".docx") || name.endsWith(".doc")) {
+    return { text: "", error: "PDF/DOCX upload is coming soon — export to .txt or paste the text for now." };
+  }
+  if (file.size > 2_000_000) return { text: "", error: "That file is too large (max 2 MB of text)." };
+  try {
+    return { text: (await file.text()).slice(0, 200000) };
+  } catch {
+    return { text: "", error: "Couldn't read that file — please upload a plain .txt file." };
+  }
+}
 
 /**
  * MVP ingestion for pasted text / CSV / JSON transcript export. Everything is
@@ -36,8 +54,13 @@ export async function ingestTextAction(_prev: IngestState, formData: FormData): 
   const { business, role } = await requireBusiness(parsed.data.businessId, "admin");
   if (!canEdit(role)) return { error: "You don't have permission to add knowledge." };
 
-  const charsIn = parsed.data.content.length;
-  const { text: clean, counts } = redactPII(parsed.data.content);
+  const upload = await readUploadedText(formData);
+  if (upload.error) return { error: upload.error };
+  const merged = [parsed.data.content, upload.text].filter((s) => s.trim()).join("\n\n").trim();
+  if (!merged) return { error: "Paste some text or upload a .txt file to ingest." };
+
+  const charsIn = merged.length;
+  const { text: clean, counts } = redactPII(merged);
   const faqs = extractFaqCandidates(clean);
 
   // Store sanitized source + chunks (business-scoped).

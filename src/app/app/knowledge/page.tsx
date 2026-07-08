@@ -8,6 +8,7 @@ import { planDef } from "@/lib/plans";
 import { Badge, Card, EmptyState } from "@/components/ui";
 import { KnowledgeForm } from "./form";
 import { IngestPanel } from "./ingest";
+import { WebsiteKnowledgeForm } from "./website";
 
 export default async function KnowledgePage() {
   const user = await requireUser();
@@ -33,6 +34,7 @@ export default async function KnowledgePage() {
       </header>
 
       <KnowledgeForm businessId={business.id} />
+      <WebsiteKnowledgeForm businessId={business.id} />
       <IngestPanel businessId={business.id} />
 
       {sources.length === 0 ? (

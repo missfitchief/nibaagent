@@ -4,8 +4,8 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { metaConnections } from "@/lib/db/schema";
 import { encryptToken } from "@/lib/crypto";
-import { env, metaRedirectUri } from "@/lib/env";
-import { exchangeCodeForToken, fetchGrantedPages, logEvent, subscribePageToApp, toLongLivedToken } from "@/lib/meta";
+import { env } from "@/lib/env";
+import { exchangeCodeForToken, fetchGrantedPages, logEvent, resolvedRedirectUri, subscribePageToApp, toLongLivedToken } from "@/lib/meta";
 
 /**
  * OAuth callback: code -> user token -> LONG-LIVED token -> granted pages
@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
   if (!businessId) return fail("Invalid connect state.");
 
   try {
-    const shortToken = await exchangeCodeForToken(code, metaRedirectUri());
+    const shortToken = await exchangeCodeForToken(code, await resolvedRedirectUri());
     const longToken = await toLongLivedToken(shortToken);
     const pages = await fetchGrantedPages(longToken);
     if (!pages.length) {

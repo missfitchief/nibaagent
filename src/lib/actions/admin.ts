@@ -9,6 +9,7 @@ import { adminAuditLogs, botSettings, businesses, eventLogs, metaConnections, PL
 import { requireAdmin } from "../auth/guards";
 import { hashPassword } from "../auth/password";
 import { encryptToken, uuid } from "../crypto";
+import { sanitizeModel, APP_DEFAULT_MODEL } from "../models";
 import type { ActionState } from "./business";
 
 async function audit(adminUserId: string, action: string, targetId: string, metadata: Record<string, unknown> = {}) {
@@ -84,7 +85,9 @@ const AdminBusinessUpdate = z.object({
   status: z.enum(["active", "inactive"]),
   aiMode: z.enum(["draft", "live", "paused"]),
   handoffEnabled: z.coerce.boolean().default(false),
-  selectedModel: z.enum(["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini"]),
+  // Free-text model name — NO hard allow-list; unknown/future models are accepted.
+  aiProvider: z.enum(["openai", "anthropic"]).default("openai"),
+  selectedModel: z.string().max(120).default("gpt-4o-mini"),
   dailyMessageLimit: z.coerce.number().int().min(0).max(1_000_000),
   monthlyMessageLimit: z.coerce.number().int().min(0).max(10_000_000),
   tone: z.string().max(40)
@@ -94,12 +97,15 @@ export async function adminUpdateBusinessAction(_prev: ActionState, formData: Fo
   const admin = await requireAdmin();
   const parsed = AdminBusinessUpdate.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: "Invalid values." };
-  const { businessId, ...fields } = parsed.data;
+  const { businessId, aiProvider, selectedModel, ...rest } = parsed.data;
+  const model = sanitizeModel(selectedModel) || APP_DEFAULT_MODEL[aiProvider];
   await db()
     .update(businesses)
-    .set({ ...fields, aiEnabled: fields.aiMode !== "paused", updatedAt: new Date() })
+    .set({ ...rest, selectedModel: model, aiEnabled: rest.aiMode !== "paused", updatedAt: new Date() })
     .where(eq(businesses.id, businessId));
-  await audit(admin.userId, "business.update", businessId, fields);
+  // Provider lives on bot_settings — keep it in sync (row exists for every business).
+  await db().update(botSettings).set({ aiProvider, updatedAt: new Date() }).where(eq(botSettings.businessId, businessId));
+  await audit(admin.userId, "business.update", businessId, { ...rest, aiProvider, selectedModel: model });
   revalidatePath(`/admin/businesses/${businessId}`);
   return { ok: true };
 }

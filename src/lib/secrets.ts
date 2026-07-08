@@ -3,7 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "./db/client";
 import { businessSecrets, eventLogs, type SecretKind } from "./db/schema";
 import { decryptToken, encryptToken } from "./crypto";
-import { env } from "./env";
+import { resolvePlatform } from "./platform";
 
 /**
  * Per-business secret vault. Every value is encrypted at rest and only ever
@@ -95,7 +95,19 @@ export async function resolveOpenAiKey(businessId: string): Promise<KeyResolutio
     await logKeySource(businessId, "business_key");
     return { key: own, source: "business_key" };
   }
-  const platform = env().OPENAI_API_KEY;
+  // Platform fallback now comes from platform_settings (DB) → env, so a key set
+  // in the admin App Settings page is actually used by the engine.
+  const platform = (await resolvePlatform("OPENAI_API_KEY")).value;
+  if (platform) {
+    await logKeySource(businessId, "platform_key");
+    return { key: platform, source: "platform_key" };
+  }
+  return { key: "", source: "none" };
+}
+
+/** Anthropic key resolution — platform-level only (no per-business Anthropic key yet). */
+export async function resolveAnthropicKey(businessId: string): Promise<KeyResolution> {
+  const platform = (await resolvePlatform("ANTHROPIC_API_KEY")).value;
   if (platform) {
     await logKeySource(businessId, "platform_key");
     return { key: platform, source: "platform_key" };
@@ -111,9 +123,10 @@ export async function resolveTelegram(
   const ownToken = await getBusinessSecret(businessId, "telegram_bot_token");
   const ownChat = (await getBusinessSecret(businessId, "telegram_chat_id")) || businessChatId;
   if (ownToken && ownChat) return { token: ownToken, chatId: ownChat, source: "business" };
-  const platformToken = env().TELEGRAM_BOT_TOKEN;
-  if (platformToken && ownChat) return { token: platformToken, chatId: ownChat, source: "platform" };
-  return { token: "", chatId: ownChat, source: "none" };
+  const platformToken = (await resolvePlatform("TELEGRAM_BOT_TOKEN")).value;
+  const platformChat = ownChat || (await resolvePlatform("TELEGRAM_CHAT_ID")).value;
+  if (platformToken && platformChat) return { token: platformToken, chatId: platformChat, source: "platform" };
+  return { token: "", chatId: platformChat, source: "none" };
 }
 
 async function logKeySource(businessId: string, source: "business_key" | "platform_key"): Promise<void> {

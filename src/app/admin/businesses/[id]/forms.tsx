@@ -6,6 +6,7 @@ import { telegramTestAction } from "@/lib/actions/tools";
 import { deleteBusinessAction } from "@/lib/actions/danger";
 import type { ActionState } from "@/lib/actions/business";
 import { Button, Card, ErrorNote, Input, Label } from "@/components/ui";
+import { ModelPicker } from "@/components/model-picker";
 
 function Select({ name, defaultValue, options, id }: { name: string; defaultValue: string; options: string[]; id?: string }) {
   return (
@@ -34,6 +35,7 @@ export function AdminBusinessForm({
     status: string;
     aiMode: string;
     handoffEnabled: boolean;
+    aiProvider: string;
     selectedModel: string;
     dailyMessageLimit: number;
     monthlyMessageLimit: number;
@@ -59,9 +61,8 @@ export function AdminBusinessForm({
             <Label htmlFor="aiMode">AI mode</Label>
             <Select name="aiMode" defaultValue={defaults.aiMode} options={["draft", "live", "paused"]} />
           </div>
-          <div>
-            <Label htmlFor="selectedModel">Model</Label>
-            <Select name="selectedModel" defaultValue={defaults.selectedModel} options={["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini"]} />
+          <div className="sm:col-span-2">
+            <ModelPicker defaultProvider={defaults.aiProvider} defaultModel={defaults.selectedModel} />
           </div>
           <div>
             <Label htmlFor="dailyMessageLimit">Daily message limit</Label>
