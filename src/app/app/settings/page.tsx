@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { ownBusiness, requireUser } from "@/lib/auth/guards";
 import { listMaskedSecrets } from "@/lib/secrets";
+import { VERSION } from "@/lib/version";
 import { SettingsForm } from "./form";
 import { SecretsPanel } from "./secrets";
 
@@ -27,6 +28,9 @@ export default async function SettingsPage() {
         }}
       />
       <SecretsPanel businessId={business.id} secrets={secrets} />
+      <p className="text-center text-xs text-[var(--ink-soft)]">
+        NibaChat Agent · build {VERSION.commit} · {VERSION.buildTime.slice(0, 16).replace("T", " ")} · {VERSION.env}
+      </p>
     </main>
   );
 }
