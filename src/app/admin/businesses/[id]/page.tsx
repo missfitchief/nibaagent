@@ -16,9 +16,15 @@ import {
 } from "@/lib/db/schema";
 import { estimateSavings } from "@/lib/plans";
 import { maskToken } from "@/lib/crypto";
+import { knowledgeSources } from "@/lib/db/schema";
 import { listProducts } from "@/lib/products";
 import { listMaskedSecrets } from "@/lib/secrets";
-import { missingSetup } from "@/lib/checklist";
+import { missingSetup, setupChecklist } from "@/lib/checklist";
+import { env, metaRedirectUri } from "@/lib/env";
+import { deleteKnowledgeAction } from "@/lib/actions/knowledge";
+import { BotSettingsForm } from "@/app/app/bot/form";
+import { KnowledgeForm } from "@/app/app/knowledge/form";
+import { IngestPanel } from "@/app/app/knowledge/ingest";
 import { listMembers, removeMemberAction } from "@/lib/actions/members";
 import { deleteProductAction, toggleProductAction } from "@/lib/actions/products";
 import { resolveHandoffAction, setOrderStatusAction } from "@/lib/actions/inbox";
@@ -37,7 +43,23 @@ import { InviteForm } from "@/app/app/team/form";
 import { SecretsPanel } from "@/app/app/settings/secrets";
 import { AdminBusinessForm, DeleteBusinessForm, ManualConnectionForm, TelegramTestButton } from "./forms";
 
-const TABS = ["overview", "products", "users", "conversations", "handoffs", "orders", "analytics", "integrations", "logs", "danger"] as const;
+const TABS = [
+  "overview",
+  "setup",
+  "users",
+  "channels",
+  "bot",
+  "knowledge",
+  "products",
+  "conversations",
+  "handoffs",
+  "orders",
+  "analytics",
+  "integrations",
+  "telegram",
+  "logs",
+  "danger"
+] as const;
 type Tab = (typeof TABS)[number];
 
 export default async function AdminBusinessDetail({
@@ -108,6 +130,13 @@ export default async function AdminBusinessDetail({
           .orderBy(sql`1`)
       : [];
   const missing = tab === "overview" ? await missingSetup(id) : [];
+  const checklist = tab === "setup" ? await setupChecklist(id) : [];
+  const knowledgeRows =
+    tab === "knowledge"
+      ? await d.select().from(knowledgeSources).where(and(eq(knowledgeSources.businessId, id), eq(knowledgeSources.status, "active"))).orderBy(desc(knowledgeSources.createdAt))
+      : [];
+  const telegramSecrets = tab === "telegram" ? await listMaskedSecrets(id) : [];
+  const metaConfigured = Boolean(env().META_APP_ID && env().META_APP_SECRET);
   const dailyMax = Math.max(1, ...daily.map((r) => r.total));
 
   return (
@@ -206,6 +235,129 @@ export default async function AdminBusinessDetail({
           <Card>
             <h2 className="font-semibold">Notifications</h2>
             <TelegramTestButton businessId={biz.id} />
+          </Card>
+        </>
+      )}
+
+      {tab === "setup" && (
+        <Card>
+          <h2 className="font-semibold">Setup checklist</h2>
+          <ul className="mt-3 space-y-2 text-sm">
+            {checklist.map((c) => (
+              <li key={c.key} className="flex items-start gap-2">
+                <span>{c.done ? "✅" : "⬜"}</span>
+                <span>
+                  <span className={c.done ? "text-[var(--ink-soft)]" : "font-medium"}>{c.label}</span>
+                  <span className="block text-xs text-[var(--ink-soft)]">{c.hint}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
+      {tab === "channels" && (
+        <>
+          {!metaConfigured && (
+            <Card className="border-amber-200 bg-amber-50/50">
+              <p className="text-sm text-amber-800">Meta app is not configured. Add META_APP_ID, META_APP_SECRET, APP_URL to enable one-click connect. Manual token entry below still works.</p>
+            </Card>
+          )}
+          <Card>
+            <h2 className="font-semibold">Facebook / Instagram</h2>
+            <p className="mt-1 text-sm text-[var(--ink-soft)]">One login connects this business&apos;s Page + Instagram; the token is stored encrypted under this business only.</p>
+            <a
+              href={`/api/meta/start?businessId=${biz.id}`}
+              className={`mt-3 inline-flex items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold ${metaConfigured ? "btn-primary" : "pointer-events-none opacity-50 border border-[var(--card-border)]"}`}
+            >
+              ⓕ Connect Facebook / Instagram
+            </a>
+            <p className="mt-2 text-xs text-[var(--ink-soft)]">OAuth redirect: <code className="rounded bg-slate-100 px-1">{metaRedirectUri()}</code></p>
+          </Card>
+          <Card>
+            <h2 className="font-semibold">Connected channels</h2>
+            {connections.length === 0 ? (
+              <p className="mt-2 text-sm text-[var(--ink-soft)]">None connected. Use the button above or manual entry below.</p>
+            ) : (
+              <ul className="mt-2 space-y-2 text-sm">
+                {connections.map((c) => (
+                  <li key={c.id} className="rounded-lg border border-[var(--card-border)] bg-white/60 p-3">
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium">{c.pageName || c.pageId}</span>
+                      <Badge tone={c.status === "connected" ? "ok" : c.status === "error" ? "error" : c.status === "disconnected" ? "neutral" : "warn"}>{c.status}</Badge>
+                    </div>
+                    <div className="mt-1 grid gap-1 text-xs text-[var(--ink-soft)]">
+                      <span>page {c.pageId} · IG {c.instagramBusinessAccountId || "—"} · {c.connectionType}</span>
+                      <span>token: {c.encryptedPageAccessToken ? maskToken(c.encryptedPageAccessToken) : "none"}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+          <ManualConnectionForm businessId={biz.id} />
+        </>
+      )}
+
+      {tab === "bot" && (
+        <>
+          <AdminBusinessForm
+            businessId={biz.id}
+            defaults={{
+              plan: biz.plan,
+              status: biz.status,
+              aiMode: biz.aiMode,
+              handoffEnabled: biz.handoffEnabled,
+              selectedModel: biz.selectedModel,
+              dailyMessageLimit: biz.dailyMessageLimit,
+              monthlyMessageLimit: biz.monthlyMessageLimit,
+              tone: biz.tone
+            }}
+          />
+          <BotSettingsForm
+            businessId={biz.id}
+            defaults={{
+              tone: settings?.tone ?? "friendly",
+              customInstructions: settings?.customInstructions ?? "",
+              orderCollectionEnabled: settings?.orderCollectionEnabled ?? true,
+              orderPrompt: settings?.orderPrompt ?? "",
+              handoffWords: ((settings?.handoffWords as string[]) ?? []).join(", ")
+            }}
+          />
+        </>
+      )}
+
+      {tab === "knowledge" && (
+        <>
+          <KnowledgeForm businessId={biz.id} />
+          <IngestPanel businessId={biz.id} />
+          {knowledgeRows.length > 0 && (
+            <Card>
+              <h2 className="font-semibold">Knowledge entries ({knowledgeRows.length})</h2>
+              <ul className="mt-2 space-y-2">
+                {knowledgeRows.map((s) => (
+                  <li key={s.id} className="flex items-start justify-between gap-3 rounded-lg border border-[var(--card-border)] bg-white/60 p-2 text-sm">
+                    <span className="min-w-0"><Badge tone="info">{s.type}</Badge> <span className="font-medium">{s.title}</span></span>
+                    <form action={deleteKnowledgeAction}>
+                      <input type="hidden" name="businessId" value={biz.id} />
+                      <input type="hidden" name="id" value={s.id} />
+                      <button className="rounded-lg px-2 py-1 text-xs text-rose-600 hover:bg-rose-50">Remove</button>
+                    </form>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
+        </>
+      )}
+
+      {tab === "telegram" && (
+        <>
+          <SecretsPanel businessId={biz.id} secrets={telegramSecrets} />
+          <Card>
+            <h2 className="font-semibold">Test notification</h2>
+            <p className="mt-1 text-sm text-[var(--ink-soft)]">Sends a message using this business&apos;s Telegram token (or the platform fallback).</p>
+            <div className="mt-2"><TelegramTestButton businessId={biz.id} /></div>
           </Card>
         </>
       )}

@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
   const url = dbUrl();
   if (!url) return NextResponse.json({ error: "no database url in runtime env" }, { status: 500 });
 
-  const body = (await request.json().catch(() => ({}))) as { email?: string; password?: string };
+  const body = (await request.json().catch(() => ({}))) as { email?: string; password?: string; seedDemo?: boolean };
   const email = (body.email ?? process.env.ADMIN_EMAIL ?? "").toLowerCase().trim();
   const password = body.password ?? process.env.ADMIN_PASSWORD ?? "";
 
@@ -68,8 +68,40 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // ---- optional demo business (so a fresh prod isn't empty) ----
+    let demoResult = "not requested";
+    if (body.seedDemo && email) {
+      const owner = (await pool.query("SELECT id FROM users WHERE email = $1 LIMIT 1", [email])).rows[0] as { id: string } | undefined;
+      if (owner) {
+        const exists = (await pool.query("SELECT id FROM businesses WHERE slug = $1 LIMIT 1", ["demo-shop"])).rows[0];
+        if (exists) {
+          demoResult = "demo business already exists";
+        } else {
+          const biz = (
+            await pool.query(
+              "INSERT INTO businesses (owner_user_id, name, slug, default_language) VALUES ($1, 'Demo Shop', 'demo-shop', 'sr') RETURNING id",
+              [owner.id]
+            )
+          ).rows[0] as { id: string };
+          await pool.query("INSERT INTO bot_settings (business_id, tone) VALUES ($1, 'friendly')", [biz.id]);
+          await pool.query("INSERT INTO subscriptions (business_id, plan, status) VALUES ($1, 'free', 'trial')", [biz.id]);
+          await pool.query(
+            "INSERT INTO products (business_id, title, description, price, currency, stock_status, enabled) VALUES ($1, 'Demo Necklace', 'Sample product', 29.90, 'BAM', 'available', true)",
+            [biz.id]
+          );
+          await pool.query(
+            "INSERT INTO knowledge_sources (business_id, type, title, content, status) VALUES ($1, 'faq', 'What is delivery price?', 'Delivery is 5 KM, free over 50 KM.', 'active')",
+            [biz.id]
+          );
+          demoResult = "demo business created";
+        }
+      } else {
+        demoResult = "admin owner not found — seed admin first";
+      }
+    }
+
     const migrationsCount = (await pool.query("SELECT count(*)::int AS n FROM _migrations")).rows[0].n;
-    return NextResponse.json({ ok: true, appliedNow: applied, totalMigrations: migrationsCount, admin: adminResult });
+    return NextResponse.json({ ok: true, appliedNow: applied, totalMigrations: migrationsCount, admin: adminResult, demo: demoResult });
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   } finally {

@@ -4,6 +4,7 @@ import { requireAdmin } from "@/lib/auth/guards";
 import { db } from "@/lib/db/client";
 import { businesses } from "@/lib/db/schema";
 import { Badge, Card, Input } from "@/components/ui";
+import { AdminCreateBusinessForm } from "./create-form";
 
 export default async function BusinessesPage({
   searchParams
@@ -30,6 +31,8 @@ export default async function BusinessesPage({
           <button className="btn-primary rounded-xl px-4 py-2 text-sm font-medium">Search</button>
         </form>
       </header>
+
+      <AdminCreateBusinessForm />
 
       <Card>
         <div className="overflow-x-auto">

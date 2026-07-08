@@ -1,16 +1,81 @@
 "use server";
 
 import { eq } from "drizzle-orm";
+import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "../db/client";
-import { adminAuditLogs, businesses, eventLogs, metaConnections, PLANS } from "../db/schema";
+import { adminAuditLogs, botSettings, businesses, eventLogs, metaConnections, PLANS, subscriptions, users } from "../db/schema";
 import { requireAdmin } from "../auth/guards";
-import { encryptToken } from "../crypto";
+import { hashPassword } from "../auth/password";
+import { encryptToken, uuid } from "../crypto";
 import type { ActionState } from "./business";
 
 async function audit(adminUserId: string, action: string, targetId: string, metadata: Record<string, unknown> = {}) {
   await db().insert(adminAuditLogs).values({ adminUserId, action, targetType: "business", targetId, metadata });
+}
+
+function slugify(name: string): string {
+  return (
+    name
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/\p{Diacritic}/gu, "")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60) || "business"
+  );
+}
+
+const AdminCreateBusiness = z.object({
+  name: z.string().min(2).max(120),
+  ownerEmail: z.string().email().max(200),
+  defaultLanguage: z.enum(["en", "sr", "bs", "hr"]).default("sr")
+});
+
+/** Admin creates a business and its owner (creating the owner user if needed). */
+export async function adminCreateBusinessAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const admin = await requireAdmin();
+  const parsed = AdminCreateBusiness.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return { error: "Enter a business name and a valid owner email." };
+  const email = parsed.data.ownerEmail.toLowerCase().trim();
+
+  let owner = (await db().select().from(users).where(eq(users.email, email)).limit(1))[0];
+  if (!owner) {
+    owner = (await db().insert(users).values({ email, name: email.split("@")[0], passwordHash: await hashPassword(uuid() + uuid()), role: "client" }).returning())[0];
+  }
+
+  let slug = slugify(parsed.data.name);
+  if ((await db().select({ id: businesses.id }).from(businesses).where(eq(businesses.slug, slug)).limit(1))[0]) {
+    slug = `${slug}-${uuid().slice(0, 4)}`;
+  }
+  const [biz] = await db()
+    .insert(businesses)
+    .values({ ownerUserId: owner.id, name: parsed.data.name.trim(), slug, defaultLanguage: parsed.data.defaultLanguage })
+    .returning();
+  await db().insert(botSettings).values({ businessId: biz.id, tone: "friendly" });
+  await db().insert(subscriptions).values({ businessId: biz.id, plan: "free", status: "trial" });
+  await audit(admin.userId, "business.create", biz.id, { name: biz.name, ownerEmail: email });
+  redirect(`/admin/businesses/${biz.id}`);
+}
+
+const AdminProfile = z.object({
+  businessId: z.string().uuid(),
+  name: z.string().min(2).max(120),
+  defaultLanguage: z.enum(["en", "sr", "bs", "hr"]),
+  website: z.string().max(300).default(""),
+  industry: z.string().max(80).default("")
+});
+
+/** Edit business profile (name/language + website/industry stored in bot custom notes). */
+export async function adminUpdateProfileAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const admin = await requireAdmin();
+  const parsed = AdminProfile.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return { error: "Invalid profile." };
+  await db().update(businesses).set({ name: parsed.data.name.trim(), defaultLanguage: parsed.data.defaultLanguage, updatedAt: new Date() }).where(eq(businesses.id, parsed.data.businessId));
+  await audit(admin.userId, "business.profile", parsed.data.businessId, { website: parsed.data.website, industry: parsed.data.industry });
+  revalidatePath(`/admin/businesses/${parsed.data.businessId}`);
+  return { ok: true };
 }
 
 const AdminBusinessUpdate = z.object({
