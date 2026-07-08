@@ -62,6 +62,100 @@ export const businesses = pgTable(
   (t) => [index("businesses_owner_idx").on(t.ownerUserId)]
 );
 
+/**
+ * Multi-member access. A business is owned by businesses.owner_user_id (always
+ * treated as role "owner"); additional members are rows here. Roles:
+ *  owner/admin — full access incl. secrets; agent — conversations/handoffs but
+ *  NOT secrets; viewer — read-only. Enforced in lib/auth/guards.ts.
+ */
+export const MEMBER_ROLES = ["owner", "admin", "agent", "viewer"] as const;
+export type MemberRole = (typeof MEMBER_ROLES)[number];
+
+export const businessMembers = pgTable(
+  "business_members",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    businessId: uuid("business_id")
+      .notNull()
+      .references(() => businesses.id),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    role: text("role", { enum: MEMBER_ROLES }).notNull().default("agent"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [uniqueIndex("business_members_unique").on(t.businessId, t.userId), index("business_members_user_idx").on(t.userId)]
+);
+
+export const STOCK_STATUSES = ["available", "unavailable", "unknown"] as const;
+export type StockStatus = (typeof STOCK_STATUSES)[number];
+
+export const products = pgTable(
+  "products",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    businessId: uuid("business_id")
+      .notNull()
+      .references(() => businesses.id),
+    title: text("title").notNull(),
+    description: text("description").notNull().default(""),
+    price: numeric("price", { precision: 12, scale: 2 }), // null = price unknown
+    currency: text("currency").notNull().default("BAM"),
+    stockStatus: text("stock_status", { enum: STOCK_STATUSES }).notNull().default("unknown"),
+    stockQuantity: integer("stock_quantity"), // nullable — usually unknown
+    sku: text("sku").notNull().default(""),
+    category: text("category").notNull().default(""),
+    tags: jsonb("tags").notNull().default([]),
+    colors: jsonb("colors").notNull().default([]),
+    sizes: jsonb("sizes").notNull().default([]),
+    url: text("url").notNull().default(""),
+    enabled: boolean("enabled").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [index("products_business_idx").on(t.businessId, t.enabled)]
+);
+
+export const productImages = pgTable(
+  "product_images",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    businessId: uuid("business_id")
+      .notNull()
+      .references(() => businesses.id),
+    productId: uuid("product_id")
+      .notNull()
+      .references(() => products.id),
+    url: text("url").notNull(),
+    alt: text("alt").notNull().default(""),
+    visualDescriptor: text("visual_descriptor").notNull().default(""),
+    ocrText: text("ocr_text").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [index("product_images_product_idx").on(t.productId)]
+);
+
+export const productVariants = pgTable(
+  "product_variants",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    businessId: uuid("business_id")
+      .notNull()
+      .references(() => businesses.id),
+    productId: uuid("product_id")
+      .notNull()
+      .references(() => products.id),
+    name: text("name").notNull().default(""),
+    price: numeric("price", { precision: 12, scale: 2 }),
+    sku: text("sku").notNull().default(""),
+    color: text("color").notNull().default(""),
+    size: text("size").notNull().default(""),
+    stockStatus: text("stock_status", { enum: STOCK_STATUSES }).notNull().default("unknown"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [index("product_variants_product_idx").on(t.productId)]
+);
+
 /** Shared contract with n8n — do not rename columns without updating the workflow. */
 export const metaConnections = pgTable(
   "meta_connections",

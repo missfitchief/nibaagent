@@ -33,3 +33,12 @@ conversation until you resolve it.
 ## You cannot
 See other businesses, open admin pages, or view any raw token/key (only masked
 previews of your own).
+
+## Products & Team (added)
+
+- **Products** (`/app/products`) — add/edit/enable/disable/delete; price, stock
+  (available/unavailable/unknown), SKU, colors, sizes, tags. This catalog is
+  the bot's authoritative fact source (never invented). Search included.
+- **Team** (`/app/team`) — owner/admin invite members by email with a role
+  (admin/agent/viewer). Agents see conversations/handoffs but not keys; viewers
+  are read-only.

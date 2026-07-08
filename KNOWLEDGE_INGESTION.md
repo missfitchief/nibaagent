@@ -40,3 +40,13 @@ are tone/FAQ guidance, never a fact source that overrides the catalog.
 4. Show suggestions for approval before enabling.
 5. Report: conversations/messages processed, redactions, FAQ generated, unsafe
    skipped. Raw private chats are never stored as prompt material.
+
+## Old-chat / text ingestion (added, MVP)
+
+`ingestTextAction` accepts pasted transcript / CSV / JSON text, runs
+`redactPII()` (emails, phones, order/tracking numbers, marked names, addresses)
+**before any storage**, stores the sanitized text as an `old_chats`
+knowledge source + chunks, and auto-extracts FAQ candidates (question→answer
+heuristic, no AI). Returns a summary: chars in, redaction counts, FAQ
+candidates, chunks stored. Business-scoped. PII redaction is unit-tested.
+PDF/DOCX file parsing is still a follow-up — paste the text for now.

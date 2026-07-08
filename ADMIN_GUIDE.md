@@ -35,3 +35,14 @@ optional.
 Full 13-tab detail page (Users/Products/Conversations/Orders as dedicated
 tabs), multi-member management, in-place conversation viewer. These read from
 tables that already exist; the pages are the remaining work.
+
+## Business Detail tabs (added)
+
+`/admin/businesses/[id]?tab=…` now has tabs: **Overview** (stats, controls,
+connections, tools, old-chats), **Products** (add/edit/enable/disable/delete for
+that business), **Users** (add member by email + role, remove), **Integrations
+& Keys** (masked OpenAI/Telegram secrets, manual connection, Telegram test),
+**Logs**. Admin acts on any business through the same forms clients use, scoped
+by `requireBusiness` (admin branch). Remaining tabs from the spec
+(Conversations/Handoffs/Orders/Analytics/Danger-Zone as dedicated views) still
+render under Overview — splitting them out is the next increment.

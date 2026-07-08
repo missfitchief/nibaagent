@@ -15,6 +15,13 @@
       "when": 1783537400370,
       "tag": "0001_business_secrets",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783538675637,
+      "tag": "0002_products_and_members",
+      "breakpoints": true
     }
   ]
 }

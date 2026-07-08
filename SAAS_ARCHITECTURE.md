@@ -18,10 +18,28 @@ data. Next.js 16 (App Router) on Vercel + Neon Postgres (Drizzle ORM).
 
 ## Tables (Drizzle, `src/lib/db/schema.ts`)
 
-users · businesses · meta_connections · **business_secrets** (new) ·
-bot_settings · knowledge_sources · knowledge_chunks · conversations · messages
-· processed_messages · orders · handoffs · analytics_daily · subscriptions ·
-admin_audit_logs · event_logs.
+users · businesses · **business_members** (roles) · meta_connections ·
+business_secrets · bot_settings · **products · product_images ·
+product_variants** · knowledge_sources · knowledge_chunks · conversations ·
+messages · processed_messages · orders · handoffs · analytics_daily ·
+subscriptions · admin_audit_logs · event_logs.
+
+## Roles (business_members + businesses.owner_user_id)
+
+`owner` (the owner_user_id) and `admin` — full access incl. secrets/keys and
+edits; `agent` — conversations/handoffs, **no secret access, no edits**;
+`viewer` — read-only. `requireBusiness(id, minRole)` resolves the caller's
+effective role (platform admin ⊇ owner ⊇ admin ⊇ agent ⊇ viewer) and gates
+every action; `canManageSecrets()` / `canEdit()` enforce the sensitive ones.
+
+## Products (source of truth for product facts)
+
+`products` (+ `product_images`, `product_variants`) is the authoritative
+catalog. The engine calls `matchProducts(businessId, message)` and injects
+`productFacts()` into the prompt as authoritative data — the bot answers
+price/stock/colors/sizes from here and is told never to invent. Generic
+`knowledge_sources` product entries are fallback only (the engine excludes
+`type=products` from the generic-knowledge block).
 
 All `business_id`-scoped tables are indexed on `business_id`. Migrations live in
 `drizzle/*.sql`, applied by `npm run db:migrate` (works against Neon via

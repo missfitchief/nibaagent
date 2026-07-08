@@ -55,3 +55,18 @@ remaining direct read of the platform key in the reply path.
 secrets and tokens. **Rotating it makes existing ciphertext undecryptable** —
 if you must rotate, re-enter each business's secrets afterward. It is set in
 Vercel env, never in git.
+
+## Role-based access (added)
+
+`business_members` gives each business owner/admin/agent/viewer members
+(owner = `businesses.owner_user_id`). `requireBusiness(id, minRole)` resolves
+the effective role and redirects under-privileged callers.
+`canManageSecrets(role)` = owner/admin only — **agents and viewers get 403 on
+any secret action** (test-covered in `products-roles.test.ts`). `canEdit(role)`
+gates product/knowledge/settings edits.
+
+## Products isolation (added)
+
+`products`/`product_images`/`product_variants` are `business_id`-scoped;
+`matchProducts(businessId, …)` filters on it so one tenant's matcher can never
+surface another's product (test: A's matcher returns nothing for B's "luna").

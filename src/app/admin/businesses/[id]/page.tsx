@@ -6,13 +6,31 @@ import { db } from "@/lib/db/client";
 import { botSettings, businesses, eventLogs, handoffs, messages, metaConnections, orders, users } from "@/lib/db/schema";
 import { estimateSavings } from "@/lib/plans";
 import { maskToken } from "@/lib/crypto";
+import { listProducts } from "@/lib/products";
+import { listMaskedSecrets } from "@/lib/secrets";
+import { listMembers, removeMemberAction } from "@/lib/actions/members";
+import { deleteProductAction, toggleProductAction } from "@/lib/actions/products";
 import { analyzeOldChatsAction } from "@/lib/actions/tools";
 import { Badge, Card, Stat } from "@/components/ui";
+import { ProductForm } from "@/app/app/products/form";
+import { AddMemberForm } from "@/app/app/team/form";
+import { SecretsPanel } from "@/app/app/settings/secrets";
 import { AdminBusinessForm, ManualConnectionForm, TelegramTestButton } from "./forms";
 
-export default async function AdminBusinessDetail({ params }: { params: Promise<{ id: string }> }) {
+const TABS = ["overview", "products", "users", "integrations", "logs"] as const;
+type Tab = (typeof TABS)[number];
+
+export default async function AdminBusinessDetail({
+  params,
+  searchParams
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
   await requireAdmin();
   const { id } = await params;
+  const sp = await searchParams;
+  const tab: Tab = TABS.includes(sp.tab as Tab) ? (sp.tab as Tab) : "overview";
   const d = db();
   const [biz] = await d.select().from(businesses).where(eq(businesses.id, id)).limit(1);
   if (!biz) notFound();
@@ -34,9 +52,12 @@ export default async function AdminBusinessDetail({ params }: { params: Promise<
     .where(and(eq(handoffs.businessId, id), eq(handoffs.status, "open")));
   const connections = await d.select().from(metaConnections).where(eq(metaConnections.businessId, id));
   const [settings] = await d.select().from(botSettings).where(eq(botSettings.businessId, id)).limit(1);
-  const logs = await d.select().from(eventLogs).where(eq(eventLogs.businessId, id)).orderBy(desc(eventLogs.createdAt)).limit(10);
+  const logs = await d.select().from(eventLogs).where(eq(eventLogs.businessId, id)).orderBy(desc(eventLogs.createdAt)).limit(20);
   const savings = estimateSavings(msg?.ai ?? 0);
   const handoffRate = (msg?.n ?? 0) > 0 ? Math.round(((handoffOpen?.n ?? 0) / (msg?.n ?? 1)) * 100) : 0;
+  const productRows = tab === "products" ? await listProducts(id) : [];
+  const members = tab === "users" ? await listMembers(id) : [];
+  const secrets = tab === "integrations" ? await listMaskedSecrets(id) : [];
 
   return (
     <main className="space-y-5">
@@ -52,6 +73,113 @@ export default async function AdminBusinessDetail({ params }: { params: Promise<
         </Link>
       </header>
 
+      <nav className="glass flex flex-wrap gap-1 p-1.5 text-sm">
+        {TABS.map((t) => (
+          <Link
+            key={t}
+            href={`/admin/businesses/${biz.id}?tab=${t}`}
+            className={`rounded-lg px-3 py-1.5 capitalize ${t === tab ? "btn-primary" : "hover:bg-sky-50 text-[var(--ink-soft)]"}`}
+          >
+            {t === "integrations" ? "Integrations & Keys" : t}
+          </Link>
+        ))}
+      </nav>
+
+      {tab === "products" && (
+        <>
+          <ProductForm businessId={biz.id} />
+          {productRows.length === 0 ? (
+            <Card><p className="text-sm text-[var(--ink-soft)]">No products for this business yet.</p></Card>
+          ) : (
+            <div className="space-y-2">
+              {productRows.map((p) => (
+                <Card key={p.id} className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium">{p.title}</span>
+                      <Badge tone={p.stockStatus === "available" ? "ok" : p.stockStatus === "unavailable" ? "error" : "warn"}>{p.stockStatus}</Badge>
+                      {!p.enabled && <Badge>disabled</Badge>}
+                    </div>
+                    <p className="mt-0.5 text-sm text-[var(--ink-soft)]">{p.price != null ? `${p.price} ${p.currency}` : "no price"}{p.sku ? ` · ${p.sku}` : ""}</p>
+                  </div>
+                  <div className="flex shrink-0 gap-1">
+                    <form action={toggleProductAction}>
+                      <input type="hidden" name="businessId" value={biz.id} />
+                      <input type="hidden" name="productId" value={p.id} />
+                      <input type="hidden" name="enabled" value={p.enabled ? "false" : "true"} />
+                      <button className="rounded-lg border border-[var(--card-border)] bg-white/60 px-2.5 py-1 text-xs hover:bg-white">{p.enabled ? "Disable" : "Enable"}</button>
+                    </form>
+                    <form action={deleteProductAction}>
+                      <input type="hidden" name="businessId" value={biz.id} />
+                      <input type="hidden" name="productId" value={p.id} />
+                      <button className="rounded-lg px-2.5 py-1 text-xs text-rose-600 hover:bg-rose-50">Delete</button>
+                    </form>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {tab === "users" && (
+        <>
+          <AddMemberForm businessId={biz.id} />
+          <Card>
+            <h2 className="font-semibold">Members</h2>
+            <ul className="mt-3 space-y-2">
+              {members.map((m) => (
+                <li key={m.userId} className="flex items-center justify-between rounded-lg border border-[var(--card-border)] bg-white/60 px-3 py-2">
+                  <span className="truncate text-sm">{m.email}</span>
+                  <span className="flex items-center gap-2">
+                    <Badge tone={m.isOwner ? "ok" : "info"}>{m.role}</Badge>
+                    {!m.isOwner && (
+                      <form action={removeMemberAction}>
+                        <input type="hidden" name="businessId" value={biz.id} />
+                        <input type="hidden" name="userId" value={m.userId} />
+                        <button className="rounded-lg px-2 py-1 text-xs text-rose-600 hover:bg-rose-50">Remove</button>
+                      </form>
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        </>
+      )}
+
+      {tab === "integrations" && (
+        <>
+          <SecretsPanel businessId={biz.id} secrets={secrets} />
+          <ManualConnectionForm businessId={biz.id} />
+          <Card>
+            <h2 className="font-semibold">Notifications</h2>
+            <TelegramTestButton businessId={biz.id} />
+          </Card>
+        </>
+      )}
+
+      {tab === "logs" && (
+        <Card>
+          <h2 className="font-semibold">Event log (20 most recent)</h2>
+          {logs.length === 0 ? (
+            <p className="mt-2 text-sm text-[var(--ink-soft)]">No events yet.</p>
+          ) : (
+            <ul className="mt-2 space-y-1.5 text-sm">
+              {logs.map((l) => (
+                <li key={l.id} className="flex items-start gap-2">
+                  <Badge tone={l.level === "error" ? "error" : l.level === "warn" ? "warn" : "neutral"}>{l.area}</Badge>
+                  <span className="min-w-0 flex-1">{l.message}</span>
+                  <span className="whitespace-nowrap text-xs text-[var(--ink-soft)]">{l.createdAt.toISOString().replace("T", " ").slice(0, 16)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      )}
+
+      {tab === "overview" && (
+      <>
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
         <Stat label="Messages" value={msg?.n ?? 0} />
         <Stat label="AI replies" value={msg?.ai ?? 0} />
@@ -144,6 +272,8 @@ export default async function AdminBusinessDetail({ params }: { params: Promise<
           </ul>
         )}
       </Card>
+      </>
+      )}
     </main>
   );
 }

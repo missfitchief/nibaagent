@@ -4,6 +4,7 @@ import { db } from "./db/client";
 import { botSettings, businesses, knowledgeSources } from "./db/schema";
 import { MODEL_COST_PER_1K } from "./plans";
 import { resolveOpenAiKey } from "./secrets";
+import { matchProducts, productFacts } from "./products";
 
 /**
  * Rules-first reply engine — the AI-credit saver. Order:
@@ -136,8 +137,16 @@ export async function runEngine(businessId: string, message: string): Promise<En
   }
 
   const summary = settings?.oldChatsSummary ? `Style/knowledge summary: ${settings.oldChatsSummary.slice(0, 800)}` : "";
+  // Product facts come from the dedicated products table (source of truth),
+  // matched to this message and business-scoped. Generic knowledge_sources
+  // entries are only a fallback for non-product info.
+  const productMatches = await matchProducts(businessId, message);
+  const productData = productMatches
+    .slice(0, 6)
+    .map((m) => `- ${productFacts(m.product)}`)
+    .join("\n");
   const knowledge = sources
-    .filter((s) => s.type !== "faq")
+    .filter((s) => s.type !== "faq" && s.type !== "products")
     .slice(0, 8)
     .map((s) => `- ${s.title}: ${s.content.slice(0, 400)}`)
     .join("\n");
@@ -152,8 +161,12 @@ export async function runEngine(businessId: string, message: string): Promise<En
     "NEVER invent prices, stock, delivery terms or product facts. If the answer is not in the data below, say the team will check and reply soon.",
     settings?.customInstructions ? `Business rules: ${settings.customInstructions.slice(0, 800)}` : "",
     summary,
-    knowledge ? `BUSINESS DATA:\n${knowledge}` : "BUSINESS DATA: none provided.",
-    faqList ? `FAQ:\n${faqList}` : ""
+    productData
+      ? `PRODUCTS (authoritative — prices/stock/colors come from here, never invent):\n${productData}`
+      : "",
+    knowledge ? `BUSINESS INFO:\n${knowledge}` : "",
+    faqList ? `FAQ:\n${faqList}` : "",
+    !productData && !knowledge && !faqList ? "No business data provided — say the team will check." : ""
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -184,7 +197,10 @@ export async function runEngine(businessId: string, message: string): Promise<En
     ...base,
     intent: "ai",
     reply: data.choices?.[0]?.message?.content?.trim() ?? "",
-    knowledgeUsed: sources.slice(0, 8).map((s) => s.title),
+    knowledgeUsed: [
+      ...productMatches.slice(0, 6).map((m) => `product: ${m.product.title}`),
+      ...sources.filter((s) => s.type !== "products").slice(0, 6).map((s) => s.title)
+    ],
     modelUsed: model,
     tokenEstimate: tokens,
     costEstimateEur: Math.round(cost * 10000) / 10000,
