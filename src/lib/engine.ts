@@ -3,7 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "./db/client";
 import { botSettings, businesses, knowledgeSources } from "./db/schema";
 import { MODEL_COST_PER_1K } from "./plans";
-import { env } from "./env";
+import { resolveOpenAiKey } from "./secrets";
 
 /**
  * Rules-first reply engine — the AI-credit saver. Order:
@@ -118,18 +118,21 @@ export async function runEngine(businessId: string, message: string): Promise<En
     return { ...base, intent: "order", orderTriggered: true, reply: orderCollectionReply(biz.defaultLanguage) };
   }
 
-  // 4. AI fallback — compact prompt, cheap model
-  const e = env();
-  if (!e.OPENAI_API_KEY) {
+  // 4. AI fallback — compact prompt, cheap model.
+  // Key resolution: business's own OpenAI key first, else platform fallback
+  // (logged per business, key never logged). This is what makes each tenant
+  // able to bring — and be billed on — its own key.
+  if (!biz.aiEnabled || biz.aiMode === "paused") {
+    return { ...base, intent: "no_ai", reply: "", note: "AI is paused for this business." };
+  }
+  const resolved = await resolveOpenAiKey(businessId);
+  if (!resolved.key) {
     return {
       ...base,
       intent: "no_ai",
       reply: "",
-      note: "OPENAI_API_KEY is not configured — AI replies are disabled. Rules (FAQ/handoff/order) still work."
+      note: "No OpenAI key for this business and no platform fallback configured. Rules (FAQ/handoff/order) still work."
     };
-  }
-  if (!biz.aiEnabled || biz.aiMode === "paused") {
-    return { ...base, intent: "no_ai", reply: "", note: "AI is paused for this business." };
   }
 
   const summary = settings?.oldChatsSummary ? `Style/knowledge summary: ${settings.oldChatsSummary.slice(0, 800)}` : "";
@@ -158,7 +161,7 @@ export async function runEngine(businessId: string, message: string): Promise<En
   const model = biz.selectedModel || "gpt-4o-mini";
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${e.OPENAI_API_KEY}` },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${resolved.key}` },
     body: JSON.stringify({
       model,
       messages: [

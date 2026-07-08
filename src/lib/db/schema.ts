@@ -299,6 +299,35 @@ export const subscriptions = pgTable("subscriptions", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
 });
 
+/**
+ * Per-business encrypted secrets vault. One row per (business, kind). Values
+ * are AES-256-GCM encrypted at rest (see lib/crypto.ts) and NEVER returned to
+ * the client — only a masked preview + "hasValue" is ever exposed. Meta page
+ * tokens stay in meta_connections; this holds provider/notification keys a
+ * business supplies itself. Kinds are an enum so a typo can't create a
+ * silently-unreadable secret.
+ */
+export const SECRET_KINDS = ["openai_api_key", "telegram_bot_token", "telegram_chat_id"] as const;
+export type SecretKind = (typeof SECRET_KINDS)[number];
+
+export const businessSecrets = pgTable(
+  "business_secrets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    businessId: uuid("business_id")
+      .notNull()
+      .references(() => businesses.id),
+    kind: text("kind", { enum: SECRET_KINDS }).notNull(),
+    /** AES-256-GCM ciphertext (v1:iv:data:tag). Empty string never stored. */
+    encryptedValue: text("encrypted_value").notNull(),
+    /** Last 4 chars, plaintext, for a "…ab12" UI hint only. */
+    lastFour: text("last_four").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [uniqueIndex("business_secrets_unique").on(t.businessId, t.kind)]
+);
+
 /** Observability: connection attempts, OAuth/webhook/AI/sheet/notification errors. */
 export const eventLogs = pgTable(
   "event_logs",

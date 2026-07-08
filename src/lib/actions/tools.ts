@@ -8,6 +8,7 @@ import { botSettings, conversations, messages } from "../db/schema";
 import { requireAdmin, requireBusiness } from "../auth/guards";
 import { runEngine, type EngineResult } from "../engine";
 import { sendTelegram } from "../notify";
+import { resolveTelegram } from "../secrets";
 import { logEvent } from "../meta";
 import { env } from "../env";
 import { MODEL_COST_PER_1K } from "../plans";
@@ -39,7 +40,13 @@ export async function telegramTestAction(_prev: { ok?: boolean; error?: string }
   const parsed = TelegramTest.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: "Invalid request." };
   const { business } = await requireBusiness(parsed.data.businessId);
-  const r = await sendTelegram(business.telegramChannelId, `✅ Test notification from NibaChat Agent for ${business.name}.`);
+  // Per-business token first, platform token as fallback (never one business's
+  // token used to reach another's chat — resolveTelegram is business-scoped).
+  const tg = await resolveTelegram(business.id, business.telegramChannelId);
+  if (!tg.token || !tg.chatId) {
+    return { error: "Configure a Telegram bot token and chat id first (Integrations)." };
+  }
+  const r = await sendTelegram(tg.token, tg.chatId, `✅ Test notification from NibaChat Agent for ${business.name}.`);
   if (!r.ok) {
     await logEvent(business.id, "warn", "notification", `Telegram test failed: ${r.error}`);
     return { error: r.error };

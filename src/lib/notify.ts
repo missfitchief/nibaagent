@@ -1,6 +1,7 @@
 import "server-only";
 import { env } from "./env";
 import { logEvent } from "./meta";
+import { resolveTelegram } from "./secrets";
 
 /**
  * Notification provider abstraction. Telegram is implemented; WhatsApp is a
@@ -12,9 +13,8 @@ export interface NotifyResult {
   error?: string;
 }
 
-export async function sendTelegram(chatId: string, text: string): Promise<NotifyResult> {
-  const token = env().TELEGRAM_BOT_TOKEN;
-  if (!token) return { ok: false, error: "TELEGRAM_BOT_TOKEN not configured" };
+export async function sendTelegram(token: string, chatId: string, text: string): Promise<NotifyResult> {
+  if (!token) return { ok: false, error: "No Telegram bot token configured" };
   if (!chatId) return { ok: false, error: "No Telegram chat/channel id set for this business" };
   try {
     const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -43,8 +43,11 @@ export async function notifyBusiness(
   text: string
 ): Promise<void> {
   const message = `🔔 ${business.name} — ${kind.toUpperCase()}\n${text}`;
-  if (business.telegramChannelId) {
-    const r = await sendTelegram(business.telegramChannelId, message);
+  // Resolve this business's own Telegram token (platform token only as fallback),
+  // so notifications never cross tenant boundaries.
+  const tg = await resolveTelegram(business.id, business.telegramChannelId);
+  if (tg.token && tg.chatId) {
+    const r = await sendTelegram(tg.token, tg.chatId, message);
     if (!r.ok) await logEvent(business.id, "warn", "notification", `Telegram notify failed: ${r.error}`);
   }
   if (business.whatsappNotificationTarget) {

@@ -36,6 +36,11 @@ export type Env = z.infer<typeof EnvSchema>;
 
 let cached: Env | null = null;
 
+/** Test-only: drop the memoized env so a changed process.env is picked up. */
+export function resetEnvCache(): void {
+  cached = null;
+}
+
 export function env(): Env {
   if (cached) return cached;
   cached = EnvSchema.parse(process.env);
