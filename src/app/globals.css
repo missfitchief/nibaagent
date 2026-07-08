@@ -20,6 +20,7 @@
   --color-brand3: var(--brand-3);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-display: var(--font-display);
 }
 
 html {
@@ -176,5 +177,220 @@ body {
 @keyframes shimmer {
   to {
     background-position: -200% 0;
+  }
+}
+
+/* =========================================================================
+   MARKETING LANDING PAGE — "Coastal dawn" editorial design system.
+   Everything is scoped under `.lp` so the app/admin/auth surfaces above
+   (which share --bg/--ink/.btn-primary/.grad-text) are left untouched.
+   ========================================================================= */
+.lp {
+  --paper: #faf6ef;        /* warm off-white section background */
+  --paper-2: #f2ebe0;      /* slightly deeper warm band */
+  --night: #0d1a26;        /* deep indigo-teal, dark sections/footer */
+  --night-2: #12242f;
+  --ink-warm: #16242e;     /* headings on light */
+  --muted: #55636b;        /* body text on light (AA on paper) */
+  --muted-2: #616d76;      /* secondary labels (AA on paper) */
+  --ember: #d9814e;        /* soft warm coral — DECORATION only (borders, rules) */
+  --ember-strong: #b8511f; /* deep terracotta — TEXT & buttons (white passes AA ~4.9) */
+  --sand: #e7dccb;
+  --line: rgba(18, 32, 42, 0.1);
+  --line-dark: rgba(255, 255, 255, 0.14);
+
+  background: var(--paper);
+  color: var(--ink-warm);
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
+
+.lp ::selection {
+  background: var(--ember-strong);
+  color: #fff;
+}
+
+.font-display {
+  font-family: var(--font-display), "Times New Roman", Georgia, serif;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+
+/* ---- Pill buttons ---- */
+.lp .pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 999px;
+  padding: 0.85rem 1.5rem;
+  font-size: 0.95rem;
+  font-weight: 500;
+  line-height: 1;
+  transition: transform 0.2s ease, background 0.2s ease, box-shadow 0.25s ease, color 0.2s ease, border-color 0.2s ease;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.lp .pill:focus-visible {
+  outline: 2px solid var(--ember-strong);
+  outline-offset: 3px;
+}
+.lp .pill-solid {
+  background: var(--ember-strong);
+  color: #fff;
+  box-shadow: 0 10px 30px -12px rgba(184, 81, 31, 0.6);
+}
+.lp .pill-solid:hover {
+  background: #9d4419;
+  transform: translateY(-1px);
+  box-shadow: 0 16px 38px -14px rgba(184, 81, 31, 0.7);
+}
+.lp .pill-ghost {
+  background: transparent;
+  color: var(--ink-warm);
+  border: 1px solid var(--line);
+}
+.lp .pill-ghost:hover {
+  background: rgba(18, 32, 42, 0.04);
+  border-color: rgba(18, 32, 42, 0.22);
+}
+/* on dark / hero */
+.lp .pill-glass {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fdf9f2;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  backdrop-filter: blur(10px);
+}
+.lp .pill-glass:hover {
+  background: rgba(255, 255, 255, 0.18);
+  transform: translateY(-1px);
+}
+/* circular icon CTA */
+.lp .pill-round {
+  width: 3.25rem;
+  height: 3.25rem;
+  padding: 0;
+  border-radius: 999px;
+}
+
+/* ---- Glass header ---- */
+.lp .lp-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  transition: background 0.3s ease, backdrop-filter 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+  border-bottom: 1px solid transparent;
+}
+.lp .lp-header[data-scrolled="true"] {
+  background: rgba(250, 246, 239, 0.72);
+  backdrop-filter: blur(14px) saturate(1.1);
+  border-bottom-color: var(--line);
+  box-shadow: 0 8px 30px -22px rgba(13, 26, 38, 0.5);
+}
+
+/* ---- Hero ---- */
+.lp .lp-hero {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background: var(--night);
+}
+.lp .lp-hero-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 62% 55%;
+  z-index: -2;
+}
+/* readability scrim: darken top (for header + headline) and left */
+.lp .lp-hero-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    linear-gradient(180deg, rgba(9, 17, 26, 0.62) 0%, rgba(9, 17, 26, 0.12) 32%, rgba(9, 17, 26, 0) 55%),
+    linear-gradient(90deg, rgba(9, 17, 26, 0.66) 0%, rgba(9, 17, 26, 0.28) 38%, rgba(9, 17, 26, 0) 70%),
+    linear-gradient(0deg, rgba(9, 17, 26, 0.45) 0%, rgba(9, 17, 26, 0) 30%);
+}
+@media (max-width: 768px) {
+  .lp .lp-hero-img {
+    object-position: 68% 50%;
+  }
+  /* stronger, more even scrim on the tighter mobile crop */
+  .lp .lp-hero-scrim {
+    background:
+      linear-gradient(180deg, rgba(9, 17, 26, 0.68) 0%, rgba(9, 17, 26, 0.3) 45%, rgba(9, 17, 26, 0.55) 100%);
+  }
+}
+
+/* atmospheric grain over the hero */
+.lp .lp-grain {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  opacity: 0.05;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ---- Surfaces on light sections ---- */
+.lp .lp-card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 1.5rem;
+  box-shadow: 0 1px 2px rgba(13, 26, 38, 0.04), 0 24px 50px -34px rgba(13, 26, 38, 0.28);
+}
+.lp .lp-hairline {
+  border-top: 1px solid var(--line);
+}
+
+/* ---- Eyebrow / small caps label ---- */
+.lp .eyebrow {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+}
+.lp .eyebrow-ember {
+  color: var(--ember-strong);
+}
+
+/* ---- Scroll reveal (progressive enhancement) ----
+   Content is fully visible by default. Only elements the script has confirmed
+   it can reveal (below the fold, JS + IntersectionObserver present) get armed
+   with `.reveal-armed`; they are then un-hidden with `.in` on scroll. If JS is
+   disabled or fails, nothing is ever hidden. */
+.lp .reveal {
+  transition: opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1), transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.lp .reveal.reveal-armed {
+  opacity: 0;
+  transform: translateY(18px);
+  will-change: opacity, transform;
+}
+.lp .reveal.reveal-armed.in {
+  opacity: 1;
+  transform: none;
+}
+.lp .reveal-slow {
+  transition-duration: 1s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lp .reveal,
+  .lp .reveal.reveal-armed {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  .lp .pill,
+  .lp .pill-solid:hover,
+  .lp .pill-glass:hover {
+    transition: none;
+    transform: none;
   }
 }
