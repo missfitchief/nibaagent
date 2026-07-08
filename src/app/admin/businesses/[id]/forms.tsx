@@ -3,6 +3,7 @@
 import { useActionState } from "react";
 import { adminManualConnectionAction, adminUpdateBusinessAction } from "@/lib/actions/admin";
 import { telegramTestAction } from "@/lib/actions/tools";
+import { deleteBusinessAction } from "@/lib/actions/danger";
 import type { ActionState } from "@/lib/actions/business";
 import { Button, Card, ErrorNote, Input, Label } from "@/components/ui";
 
@@ -93,6 +94,27 @@ export function AdminBusinessForm({
         </Button>
       </form>
     </Card>
+  );
+}
+
+export function DeleteBusinessForm({ businessId, slug }: { businessId: string; slug: string }) {
+  const [state, formAction, pending] = useActionState<{ error?: string; ok?: boolean }, FormData>(deleteBusinessAction, {});
+  if (state.ok) return <p className="text-sm text-emerald-700">Business deleted.</p>;
+  return (
+    <div>
+      <p className="text-sm font-medium text-rose-700">Delete business permanently</p>
+      <p className="mb-2 text-xs text-[var(--ink-soft)]">
+        Removes all conversations, products, knowledge, secrets and connections. Type the slug <code className="rounded bg-slate-100 px-1">{slug}</code> to confirm.
+      </p>
+      <form action={formAction} className="flex gap-2">
+        <input type="hidden" name="businessId" value={businessId} />
+        <Input name="confirm" placeholder={slug} autoComplete="off" />
+        <Button type="submit" variant="danger" disabled={pending}>
+          {pending ? "Deleting…" : "Delete"}
+        </Button>
+      </form>
+      <ErrorNote>{state.error}</ErrorNote>
+    </div>
   );
 }
 

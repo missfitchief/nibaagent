@@ -4,7 +4,7 @@ import { db } from "./db/client";
 import { botSettings, businesses, knowledgeSources } from "./db/schema";
 import { MODEL_COST_PER_1K } from "./plans";
 import { resolveOpenAiKey } from "./secrets";
-import { matchProducts, productFacts } from "./products";
+import { matchProducts, productFacts, variantFacts, variantsFor } from "./products";
 
 /**
  * Rules-first reply engine — the AI-credit saver. Order:
@@ -141,9 +141,15 @@ export async function runEngine(businessId: string, message: string): Promise<En
   // matched to this message and business-scoped. Generic knowledge_sources
   // entries are only a fallback for non-product info.
   const productMatches = await matchProducts(businessId, message);
-  const productData = productMatches
-    .slice(0, 6)
-    .map((m) => `- ${productFacts(m.product)}`)
+  const topProducts = productMatches.slice(0, 6);
+  // Include variant (size/color/price) lines so the bot can answer variant
+  // questions from the DB, still never inventing.
+  const askedVariant = /\b(velicin|velicina|broj|size|boj[aeu]|boje|color|colou?r)\b/i.test(
+    message.normalize("NFD").replace(/\p{Diacritic}/gu, "")
+  );
+  const variants = askedVariant ? await variantsFor(businessId, topProducts.map((m) => m.product.id)) : new Map();
+  const productData = topProducts
+    .map((m) => `- ${productFacts(m.product)}${variantFacts(variants.get(m.product.id) ?? [])}`)
     .join("\n");
   const knowledge = sources
     .filter((s) => s.type !== "faq" && s.type !== "products")

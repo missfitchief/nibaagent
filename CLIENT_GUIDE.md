@@ -42,3 +42,14 @@ previews of your own).
 - **Team** (`/app/team`) — owner/admin invite members by email with a role
   (admin/agent/viewer). Agents see conversations/handoffs but not keys; viewers
   are read-only.
+
+## Products detail, Team invites, Import (added)
+
+- **Product detail** (`/app/products/[id]`) — manage images (URL + alt +
+  visual descriptor) and variants (name/color/size/price/SKU/stock). The bot
+  uses variants to answer size/color questions from the DB.
+- **Team invites** — owner/admin creates a 7-day invite link (copyable; email
+  delivery not yet configured). Invitee opens `/invite/<token>`, sets a
+  password, joins with the assigned role. Pending invites can be revoked.
+- **Import old chats/notes** (Knowledge page) — paste transcript/CSV/notes;
+  PII is redacted before storage and FAQ candidates are extracted.

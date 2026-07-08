@@ -7,6 +7,7 @@ import { deleteKnowledgeAction } from "@/lib/actions/knowledge";
 import { planDef } from "@/lib/plans";
 import { Badge, Card, EmptyState } from "@/components/ui";
 import { KnowledgeForm } from "./form";
+import { IngestPanel } from "./ingest";
 
 export default async function KnowledgePage() {
   const user = await requireUser();
@@ -32,6 +33,7 @@ export default async function KnowledgePage() {
       </header>
 
       <KnowledgeForm businessId={business.id} />
+      <IngestPanel businessId={business.id} />
 
       {sources.length === 0 ? (
         <EmptyState

@@ -70,3 +70,11 @@ gates product/knowledge/settings edits.
 `products`/`product_images`/`product_variants` are `business_id`-scoped;
 `matchProducts(businessId, …)` filters on it so one tenant's matcher can never
 surface another's product (test: A's matcher returns nothing for B's "luna").
+
+## Invites, danger zone, order notes (added)
+
+Invite tokens (`invites` table) are business-scoped, expire in 7 days, and are
+revocable; accepting joins ONLY the token's business with the invited role
+(test-covered: valid→own business, revoked/expired/unknown→fail). Danger-zone
+delete removes only the target business's child rows (test-covered: A deleted,
+B intact). Order internal notes are agent+; viewers are read-only.

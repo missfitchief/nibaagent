@@ -46,3 +46,14 @@ that business), **Users** (add member by email + role, remove), **Integrations
 by `requireBusiness` (admin branch). Remaining tabs from the spec
 (Conversations/Handoffs/Orders/Analytics/Danger-Zone as dedicated views) still
 render under Overview — splitting them out is the next increment.
+
+## Business Detail tabs — completed set
+
+`/admin/businesses/[id]?tab=` now covers: Overview (stats + **missing-setup
+banner** + controls + connections + old-chats tools), Products, Users
+(invites), **Conversations** (list: customer/channel/status/last-activity),
+**Handoffs** (resolve + resume bot), **Orders** (change status + internal
+note), **Analytics** (30-day chart + totals), Integrations & Keys, Logs, and
+**Danger Zone** (pause/resume, reset bot state, clear test conversations,
+disconnect channels, archive, and hard-delete with typed-slug confirmation).
+All danger-zone actions are admin/owner-only and audit-logged.

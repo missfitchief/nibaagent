@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { canEdit, requireBusiness } from "../auth/guards";
 import { STOCK_STATUSES } from "../db/schema";
-import { addProductImage, createProduct, deleteProduct, updateProduct } from "../products";
+import { addProductImage, addVariant, createProduct, deleteProduct, deleteProductImage, deleteVariant, updateProduct } from "../products";
 import type { ActionState } from "./business";
 
 const csv = (v: FormDataEntryValue | null) =>
@@ -78,12 +78,67 @@ export async function toggleProductAction(formData: FormData): Promise<void> {
 
 export async function addProductImageAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const parsed = z
-    .object({ businessId: z.string().uuid(), productId: z.string().uuid(), url: z.string().url().max(500), alt: z.string().max(200).default("") })
+    .object({
+      businessId: z.string().uuid(),
+      productId: z.string().uuid(),
+      url: z.string().url().max(500),
+      alt: z.string().max(200).default(""),
+      descriptor: z.string().max(400).default("")
+    })
     .safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: "Enter a valid image URL." };
   const { business, role } = await requireBusiness(parsed.data.businessId, "admin");
   if (!canEdit(role)) return { error: "No permission." };
-  await addProductImage(business.id, parsed.data.productId, parsed.data.url, parsed.data.alt);
-  revalidatePath("/app/products");
+  await addProductImage(business.id, parsed.data.productId, parsed.data.url, parsed.data.alt, parsed.data.descriptor);
+  revalidatePath(`/app/products/${parsed.data.productId}`);
   return { ok: true };
+}
+
+export async function deleteProductImageAction(formData: FormData): Promise<void> {
+  const parsed = z.object({ businessId: z.string().uuid(), productId: z.string().uuid(), imageId: z.string().uuid() }).safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return;
+  const { business, role } = await requireBusiness(parsed.data.businessId, "admin");
+  if (!canEdit(role)) return;
+  await deleteProductImage(business.id, parsed.data.imageId);
+  revalidatePath(`/app/products/${parsed.data.productId}`);
+}
+
+export async function addVariantAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const parsed = z
+    .object({
+      businessId: z.string().uuid(),
+      productId: z.string().uuid(),
+      name: z.string().max(120).default(""),
+      price: z.string().max(20).default(""),
+      sku: z.string().max(80).default(""),
+      color: z.string().max(60).default(""),
+      size: z.string().max(60).default(""),
+      stockStatus: z.enum(STOCK_STATUSES).default("unknown")
+    })
+    .safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return { error: "Invalid variant." };
+  const { business, role } = await requireBusiness(parsed.data.businessId, "admin");
+  if (!canEdit(role)) return { error: "No permission." };
+  if (!parsed.data.name && !parsed.data.color && !parsed.data.size) return { error: "Give the variant a name, color, or size." };
+  const priceNum = parsed.data.price.trim() ? Number(parsed.data.price.replace(",", ".")) : null;
+  if (priceNum != null && !Number.isFinite(priceNum)) return { error: "Variant price must be a number." };
+  await addVariant(business.id, parsed.data.productId, {
+    name: parsed.data.name,
+    price: priceNum,
+    sku: parsed.data.sku,
+    color: parsed.data.color,
+    size: parsed.data.size,
+    stockStatus: parsed.data.stockStatus
+  });
+  revalidatePath(`/app/products/${parsed.data.productId}`);
+  return { ok: true };
+}
+
+export async function deleteVariantAction(formData: FormData): Promise<void> {
+  const parsed = z.object({ businessId: z.string().uuid(), productId: z.string().uuid(), variantId: z.string().uuid() }).safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return;
+  const { business, role } = await requireBusiness(parsed.data.businessId, "admin");
+  if (!canEdit(role)) return;
+  await deleteVariant(business.id, parsed.data.variantId);
+  revalidatePath(`/app/products/${parsed.data.productId}`);
 }

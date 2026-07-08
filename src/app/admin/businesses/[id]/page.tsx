@@ -3,21 +3,41 @@ import { notFound } from "next/navigation";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { requireAdmin } from "@/lib/auth/guards";
 import { db } from "@/lib/db/client";
-import { botSettings, businesses, eventLogs, handoffs, messages, metaConnections, orders, users } from "@/lib/db/schema";
+import {
+  botSettings,
+  businesses,
+  conversations,
+  eventLogs,
+  handoffs,
+  messages,
+  metaConnections,
+  orders,
+  users
+} from "@/lib/db/schema";
 import { estimateSavings } from "@/lib/plans";
 import { maskToken } from "@/lib/crypto";
 import { listProducts } from "@/lib/products";
 import { listMaskedSecrets } from "@/lib/secrets";
+import { missingSetup } from "@/lib/checklist";
 import { listMembers, removeMemberAction } from "@/lib/actions/members";
 import { deleteProductAction, toggleProductAction } from "@/lib/actions/products";
+import { resolveHandoffAction, setOrderStatusAction } from "@/lib/actions/inbox";
 import { analyzeOldChatsAction } from "@/lib/actions/tools";
+import {
+  archiveBusinessAction,
+  clearTestConversationsAction,
+  disconnectChannelsAction,
+  pauseBusinessAction,
+  resetBotStateAction,
+  setOrderNoteAction
+} from "@/lib/actions/danger";
 import { Badge, Card, Stat } from "@/components/ui";
 import { ProductForm } from "@/app/app/products/form";
-import { AddMemberForm } from "@/app/app/team/form";
+import { InviteForm } from "@/app/app/team/form";
 import { SecretsPanel } from "@/app/app/settings/secrets";
-import { AdminBusinessForm, ManualConnectionForm, TelegramTestButton } from "./forms";
+import { AdminBusinessForm, DeleteBusinessForm, ManualConnectionForm, TelegramTestButton } from "./forms";
 
-const TABS = ["overview", "products", "users", "integrations", "logs"] as const;
+const TABS = ["overview", "products", "users", "conversations", "handoffs", "orders", "analytics", "integrations", "logs", "danger"] as const;
 type Tab = (typeof TABS)[number];
 
 export default async function AdminBusinessDetail({
@@ -58,6 +78,37 @@ export default async function AdminBusinessDetail({
   const productRows = tab === "products" ? await listProducts(id) : [];
   const members = tab === "users" ? await listMembers(id) : [];
   const secrets = tab === "integrations" ? await listMaskedSecrets(id) : [];
+  const convRows =
+    tab === "conversations"
+      ? await d.select().from(conversations).where(eq(conversations.businessId, id)).orderBy(desc(conversations.lastMessageAt)).limit(50)
+      : [];
+  const handoffRows =
+    tab === "handoffs"
+      ? await d
+          .select({ h: handoffs, channel: conversations.channel, customer: conversations.customerName, sender: conversations.senderId })
+          .from(handoffs)
+          .leftJoin(conversations, eq(handoffs.conversationId, conversations.id))
+          .where(eq(handoffs.businessId, id))
+          .orderBy(desc(handoffs.createdAt))
+          .limit(50)
+      : [];
+  const orderRows =
+    tab === "orders" ? await d.select().from(orders).where(eq(orders.businessId, id)).orderBy(desc(orders.createdAt)).limit(100) : [];
+  const daily =
+    tab === "analytics"
+      ? await d
+          .select({
+            day: sql<string>`to_char(${messages.createdAt}, 'YYYY-MM-DD')`,
+            total: sql<number>`count(*)::int`,
+            ai: sql<number>`count(*) filter (where ${messages.aiGenerated})::int`
+          })
+          .from(messages)
+          .where(and(eq(messages.businessId, id), sql`${messages.createdAt} >= now() - interval '30 days'`))
+          .groupBy(sql`1`)
+          .orderBy(sql`1`)
+      : [];
+  const missing = tab === "overview" ? await missingSetup(id) : [];
+  const dailyMax = Math.max(1, ...daily.map((r) => r.total));
 
   return (
     <main className="space-y-5">
@@ -124,7 +175,7 @@ export default async function AdminBusinessDetail({
 
       {tab === "users" && (
         <>
-          <AddMemberForm businessId={biz.id} />
+          <InviteForm businessId={biz.id} />
           <Card>
             <h2 className="font-semibold">Members</h2>
             <ul className="mt-3 space-y-2">
@@ -159,6 +210,135 @@ export default async function AdminBusinessDetail({
         </>
       )}
 
+      {tab === "conversations" && (
+        <Card>
+          <h2 className="font-semibold">Conversations ({convRows.length})</h2>
+          {convRows.length === 0 ? (
+            <p className="mt-2 text-sm text-[var(--ink-soft)]">No conversations yet.</p>
+          ) : (
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs uppercase tracking-wide text-[var(--ink-soft)]">
+                    <th className="py-2 pr-4">Customer</th>
+                    <th className="py-2 pr-4">Channel</th>
+                    <th className="py-2 pr-4">Status</th>
+                    <th className="py-2 pr-4">Last activity</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {convRows.map((c) => (
+                    <tr key={c.id} className="border-t border-[var(--card-border)]">
+                      <td className="py-2 pr-4">{c.customerName || c.senderId}</td>
+                      <td className="py-2 pr-4">{c.channel}</td>
+                      <td className="py-2 pr-4"><Badge tone={c.status === "handoff" ? "warn" : c.status === "closed" ? "neutral" : "ok"}>{c.status}</Badge></td>
+                      <td className="py-2 pr-4">{c.lastMessageAt.toISOString().replace("T", " ").slice(0, 16)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {tab === "handoffs" && (
+        <Card>
+          <h2 className="font-semibold">Handoffs</h2>
+          {handoffRows.length === 0 ? (
+            <p className="mt-2 text-sm text-[var(--ink-soft)]">No handoffs.</p>
+          ) : (
+            <ul className="mt-3 space-y-2">
+              {handoffRows.map(({ h, channel, customer, sender }) => (
+                <li key={h.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--card-border)] bg-white/60 px-3 py-2 text-sm">
+                  <span className="min-w-0">
+                    <Badge tone={h.status === "open" ? "warn" : "ok"}>{h.status}</Badge> <Badge tone="info">{channel ?? "—"}</Badge> {customer || sender || "customer"}
+                    <span className="text-[var(--ink-soft)]"> — {h.reason || h.triggerWord || "handoff"}</span>
+                  </span>
+                  {h.status === "open" && (
+                    <form action={resolveHandoffAction}>
+                      <input type="hidden" name="businessId" value={biz.id} />
+                      <input type="hidden" name="id" value={h.id} />
+                      <button className="btn-primary rounded-lg px-3 py-1 text-xs font-medium">Resolve & resume bot</button>
+                    </form>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      )}
+
+      {tab === "orders" && (
+        <Card>
+          <h2 className="font-semibold">Orders</h2>
+          {orderRows.length === 0 ? (
+            <p className="mt-2 text-sm text-[var(--ink-soft)]">No orders.</p>
+          ) : (
+            <div className="mt-3 space-y-2">
+              {orderRows.map((o) => (
+                <div key={o.id} className="rounded-lg border border-[var(--card-border)] bg-white/60 p-3 text-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-medium">{o.customerName || "—"} · {o.city || "—"}</span>
+                    <form action={setOrderStatusAction} className="flex items-center gap-1.5">
+                      <input type="hidden" name="businessId" value={biz.id} />
+                      <input type="hidden" name="id" value={o.id} />
+                      <select name="status" defaultValue={o.status} className="rounded-lg border border-[var(--card-border)] bg-white px-2 py-1 text-xs">
+                        {["new", "confirmed", "shipped", "done", "cancelled"].map((s) => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                      <button className="rounded-lg border border-[var(--card-border)] bg-white px-2 py-1 text-xs">Set</button>
+                    </form>
+                  </div>
+                  <p className="mt-1 text-[var(--ink-soft)]">{o.orderText || "—"}</p>
+                  <form action={setOrderNoteAction} className="mt-2 flex gap-1.5">
+                    <input type="hidden" name="businessId" value={biz.id} />
+                    <input type="hidden" name="orderId" value={o.id} />
+                    <input name="note" defaultValue={o.internalNote} placeholder="Internal note" className="w-full rounded-lg border border-[var(--card-border)] bg-white px-2 py-1 text-xs" />
+                    <button className="rounded-lg border border-[var(--card-border)] bg-white px-2 py-1 text-xs">Save note</button>
+                  </form>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      )}
+
+      {tab === "analytics" && (
+        <Card>
+          <h2 className="font-semibold">Last 30 days</h2>
+          {daily.length === 0 ? (
+            <p className="mt-2 text-sm text-[var(--ink-soft)]">No message activity in the last 30 days.</p>
+          ) : (
+            <div className="mt-4 flex h-40 items-end gap-1">
+              {daily.map((r) => (
+                <div key={r.day} className="group relative flex-1" title={`${r.day}: ${r.total} msgs, ${r.ai} AI`}>
+                  <div className="w-full rounded-t bg-sky-200" style={{ height: `${(r.total / dailyMax) * 100}%`, minHeight: 2 }} />
+                  <div className="absolute bottom-0 w-full rounded-t bg-gradient-to-t from-sky-500 to-cyan-400" style={{ height: `${(r.ai / dailyMax) * 100}%` }} />
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="mt-3 text-sm text-[var(--ink-soft)]">Totals: {msg?.n ?? 0} messages · {msg?.ai ?? 0} AI replies · {orderCount?.n ?? 0} orders · est. saved €{savings.savedEur}.</p>
+        </Card>
+      )}
+
+      {tab === "danger" && (
+        <Card className="border-rose-200">
+          <h2 className="font-semibold text-rose-700">Danger zone</h2>
+          <p className="mt-1 text-sm text-[var(--ink-soft)]">All actions are audit-logged. Status: {biz.status} · {biz.aiMode}.</p>
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">
+            <form action={pauseBusinessAction}><input type="hidden" name="businessId" value={biz.id} /><button className="w-full rounded-lg border border-[var(--card-border)] bg-white/60 px-3 py-2 text-sm hover:bg-white">{biz.aiMode === "paused" ? "Resume bot" : "Pause bot"}</button></form>
+            <form action={resetBotStateAction}><input type="hidden" name="businessId" value={biz.id} /><button className="w-full rounded-lg border border-[var(--card-border)] bg-white/60 px-3 py-2 text-sm hover:bg-white">Reset bot state</button></form>
+            <form action={clearTestConversationsAction}><input type="hidden" name="businessId" value={biz.id} /><button className="w-full rounded-lg border border-[var(--card-border)] bg-white/60 px-3 py-2 text-sm hover:bg-white">Clear test conversations</button></form>
+            <form action={disconnectChannelsAction}><input type="hidden" name="businessId" value={biz.id} /><button className="w-full rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 hover:bg-amber-100">Disconnect channels</button></form>
+            <form action={archiveBusinessAction}><input type="hidden" name="businessId" value={biz.id} /><button className="w-full rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 hover:bg-amber-100">Archive business</button></form>
+          </div>
+          <div className="mt-4 border-t border-rose-200 pt-4">
+            <DeleteBusinessForm businessId={biz.id} slug={biz.slug} />
+          </div>
+        </Card>
+      )}
+
       {tab === "logs" && (
         <Card>
           <h2 className="font-semibold">Event log (20 most recent)</h2>
@@ -180,6 +360,12 @@ export default async function AdminBusinessDetail({
 
       {tab === "overview" && (
       <>
+      {missing.length > 0 && (
+        <Card className="border-amber-200 bg-amber-50/50">
+          <h2 className="font-semibold text-amber-800">Setup incomplete</h2>
+          <p className="mt-1 text-sm text-amber-800">Missing: {missing.join(" · ")}</p>
+        </Card>
+      )}
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
         <Stat label="Messages" value={msg?.n ?? 0} />
         <Stat label="AI replies" value={msg?.ai ?? 0} />

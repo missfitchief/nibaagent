@@ -50,3 +50,12 @@ knowledge source + chunks, and auto-extracts FAQ candidates (question→answer
 heuristic, no AI). Returns a summary: chars in, redaction counts, FAQ
 candidates, chunks stored. Business-scoped. PII redaction is unit-tested.
 PDF/DOCX file parsing is still a follow-up — paste the text for now.
+
+## File upload status (updated)
+
+Text / CSV / JSON **paste** ingestion is live (`ingestTextAction`) with PII
+redaction + FAQ extraction, business-scoped. **PDF/DOCX binary parsing is
+still deferred** — it needs a parser dependency (pdf-parse/mammoth) whose
+Vercel-serverless reliability warrants its own pass; paste the text for now.
+Website URL extraction remains single-page MVP; multi-page crawl (FAQ/
+delivery/contact page discovery) is a documented follow-up.

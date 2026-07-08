@@ -87,6 +87,26 @@ export const businessMembers = pgTable(
   (t) => [uniqueIndex("business_members_unique").on(t.businessId, t.userId), index("business_members_user_idx").on(t.userId)]
 );
 
+/** Pending invitations. Token-based join; expires; revocable. */
+export const invites = pgTable(
+  "invites",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    businessId: uuid("business_id")
+      .notNull()
+      .references(() => businesses.id),
+    email: text("email").notNull(),
+    role: text("role", { enum: ["admin", "agent", "viewer"] }).notNull().default("agent"),
+    token: text("token").notNull().unique(),
+    status: text("status", { enum: ["pending", "accepted", "revoked", "expired"] }).notNull().default("pending"),
+    invitedByUserId: uuid("invited_by_user_id").references(() => users.id),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [index("invites_business_idx").on(t.businessId), index("invites_email_idx").on(t.email)]
+);
+
 export const STOCK_STATUSES = ["available", "unavailable", "unknown"] as const;
 export type StockStatus = (typeof STOCK_STATUSES)[number];
 
@@ -264,6 +284,7 @@ export const orders = pgTable(
     status: text("status", { enum: ["new", "confirmed", "shipped", "done", "cancelled"] }).notNull().default("new"),
     googleSheetSynced: boolean("google_sheet_synced").notNull().default(false),
     sheetSyncError: text("sheet_sync_error").notNull().default(""),
+    internalNote: text("internal_note").notNull().default(""),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
   },

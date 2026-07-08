@@ -1,5 +1,5 @@
 import "server-only";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "./db/client";
 import { products, productImages, productVariants, type StockStatus } from "./db/schema";
 
@@ -145,13 +145,75 @@ export async function deleteProduct(businessId: string, productId: string): Prom
   await db().delete(products).where(and(eq(products.id, productId), eq(products.businessId, businessId)));
 }
 
-export async function addProductImage(businessId: string, productId: string, url: string, alt: string): Promise<void> {
-  // Verify the product belongs to the business before attaching an image.
+async function productBelongs(businessId: string, productId: string): Promise<boolean> {
   const owns = await db()
     .select({ id: products.id })
     .from(products)
     .where(and(eq(products.id, productId), eq(products.businessId, businessId)))
     .limit(1);
-  if (!owns[0]) return;
-  await db().insert(productImages).values({ businessId, productId, url: url.trim(), alt: alt.trim() });
+  return Boolean(owns[0]);
+}
+
+export async function addProductImage(businessId: string, productId: string, url: string, alt: string, descriptor = ""): Promise<void> {
+  if (!(await productBelongs(businessId, productId))) return;
+  await db().insert(productImages).values({ businessId, productId, url: url.trim(), alt: alt.trim(), visualDescriptor: descriptor.trim() });
+}
+
+export async function deleteProductImage(businessId: string, imageId: string): Promise<void> {
+  await db().delete(productImages).where(and(eq(productImages.id, imageId), eq(productImages.businessId, businessId)));
+}
+
+export interface VariantInput {
+  name: string;
+  price?: number | null;
+  sku?: string;
+  color?: string;
+  size?: string;
+  stockStatus?: StockStatus;
+}
+
+export async function addVariant(businessId: string, productId: string, input: VariantInput): Promise<void> {
+  if (!(await productBelongs(businessId, productId))) return;
+  await db().insert(productVariants).values({
+    businessId,
+    productId,
+    name: input.name.trim(),
+    price: input.price == null ? null : String(input.price),
+    sku: input.sku ?? "",
+    color: input.color ?? "",
+    size: input.size ?? "",
+    stockStatus: input.stockStatus ?? "unknown"
+  });
+}
+
+export async function deleteVariant(businessId: string, variantId: string): Promise<void> {
+  await db().delete(productVariants).where(and(eq(productVariants.id, variantId), eq(productVariants.businessId, businessId)));
+}
+
+/** Variants for a set of products, business-scoped, keyed by productId. */
+export async function variantsFor(businessId: string, productIds: string[]): Promise<Map<string, (typeof productVariants.$inferSelect)[]>> {
+  const map = new Map<string, (typeof productVariants.$inferSelect)[]>();
+  if (!productIds.length) return map;
+  const rows = await db()
+    .select()
+    .from(productVariants)
+    .where(and(eq(productVariants.businessId, businessId), inArray(productVariants.productId, productIds)));
+  for (const v of rows) {
+    const list = map.get(v.productId) ?? [];
+    list.push(v);
+    map.set(v.productId, list);
+  }
+  return map;
+}
+
+/** Product facts including variant color/size lines (used when asked). */
+export function variantFacts(vs: (typeof productVariants.$inferSelect)[]): string {
+  if (!vs.length) return "";
+  return (
+    " | variants: " +
+    vs
+      .slice(0, 12)
+      .map((v) => [v.name || v.color || v.size, v.price != null ? `${v.price}` : null, v.color, v.size].filter(Boolean).join(" "))
+      .join("; ")
+  );
 }

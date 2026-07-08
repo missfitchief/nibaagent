@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireUser, ownBusiness } from "@/lib/auth/guards";
 import { dashboardData } from "@/lib/actions/business";
+import { setupChecklist } from "@/lib/checklist";
 import { estimateSavings, planDef } from "@/lib/plans";
 import { Badge, Card, EmptyState, Stat } from "@/components/ui";
 
@@ -11,6 +12,8 @@ export default async function ClientDashboard() {
   if (!business) redirect("/app/onboarding");
 
   const data = await dashboardData(business.id);
+  const checklist = await setupChecklist(business.id);
+  const remaining = checklist.filter((c) => !c.done);
   const savings = estimateSavings(data.stats.aiRepliesAllTime);
   const plan = planDef(business.plan);
   const fb = data.connections.some((c) => c.status === "connected");
@@ -30,6 +33,21 @@ export default async function ClientDashboard() {
           <Badge tone="info">Plan: {plan.name}</Badge>
         </div>
       </header>
+
+      {remaining.length > 0 && (
+        <Card className="border-sky-200">
+          <h2 className="font-semibold">Finish setting up ({checklist.length - remaining.length}/{checklist.length})</h2>
+          <ul className="mt-2 space-y-1 text-sm">
+            {checklist.map((c) => (
+              <li key={c.key} className="flex items-center gap-2">
+                <span>{c.done ? "✅" : "⬜"}</span>
+                <span className={c.done ? "text-[var(--ink-soft)]" : ""}>{c.label}</span>
+                {!c.done && <span className="text-xs text-[var(--ink-soft)]">— {c.hint}</span>}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
 
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
         <Stat label="Messages today" value={data.stats.messagesToday} />

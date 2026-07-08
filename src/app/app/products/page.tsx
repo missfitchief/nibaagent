@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ownBusiness, requireUser } from "@/lib/auth/guards";
 import { listProducts } from "@/lib/products";
@@ -47,7 +48,9 @@ export default async function ProductsPage({
             <Card key={p.id} className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-medium">{p.title}</span>
+                  <Link href={`/app/products/${p.id}`} className="font-medium hover:text-sky-600 hover:underline">
+                    {p.title}
+                  </Link>
                   <Badge tone={p.stockStatus === "available" ? "ok" : p.stockStatus === "unavailable" ? "error" : "warn"}>
                     {p.stockStatus}
                   </Badge>
