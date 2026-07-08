@@ -2,49 +2,63 @@ import Link from "next/link";
 import { NibaLogo } from "@/components/logo";
 import { LandingHeader } from "@/components/landing/header";
 import { Reveal } from "@/components/landing/reveal";
+import { HeroDemo } from "@/components/landing/hero-demo";
 import { AgentDemo } from "@/components/landing/agent-demo";
 import { PLAN_DEFS } from "@/lib/plans";
-import { BLOG_POSTS } from "@/lib/blog";
 
-const PROOF = [
-  { k: "~3s", v: "average reply time" },
-  { k: "24/7", v: "always answering" },
-  { k: "4", v: "languages, one agent" },
-  { k: "0", v: "answers it invents" }
-];
+const CAPS = ["Odgovara o ceni", "Prima porudžbine", "Proverava dostavu i stanje", "Radi na Instagram i Facebook"];
 
 const BENEFITS = [
   {
-    title: "Answers from your data — never guesses",
-    body: "Feed it your products, prices, delivery rules, FAQs or just your website. It answers only from what it knows, and when it isn't sure it says the team will check.",
-    tag: "Grounded"
+    tag: "Brzina",
+    title: "Odgovori pre nego što kupac ode",
+    body: "Na cenu, dostavu i „ima li na stanju“ agent odgovara istog trenutka. Ti zadržavaš razgovore koji su zaista bitni."
   },
   {
-    title: "Takes the whole order in chat",
-    body: "Name, address, phone, city — collected politely inside the conversation and saved to your dashboard and your own Google Sheet.",
-    tag: "Orders"
+    tag: "Porudžbine",
+    title: "Porudžbine iz DM-a, bez prepisivanja",
+    body: "Ime, adresa, telefon i grad — prikupljeno kroz razgovor i sačuvano u tvoj panel i tvoju Google tabelu."
   },
   {
-    title: "Knows when to step back",
-    body: "Words like “reklamacija” or “agent” silence the bot instantly, flag the chat and ping your team on Telegram. Humans take over in one tap.",
-    tag: "Handoff"
+    tag: "Predaja",
+    title: "Tim ulazi samo kada zaista treba",
+    body: "Reči poput „reklamacija“ ili „agent“ odmah ućutkaju bota, označe razgovor i obaveste tim na Telegramu."
   }
 ];
 
 const STEPS = [
-  { n: "01", title: "Connect", body: "One Facebook login links your Page and Instagram. Tokens are stored encrypted — no developer console, no code." },
-  { n: "02", title: "Train", body: "Add FAQs, prices and delivery rules, or paste your shop URL and let it read the catalog. Ten minutes, once." },
-  { n: "03", title: "Go live", body: "Start in draft mode and review every answer. Flip to live when you trust it. Take over any conversation, any time." }
+  { n: "01", title: "Poveži naloge", body: "Jednim Facebook loginom povezuješ stranicu i Instagram. Tokeni su šifrovani — bez Meta konzole i bez koda." },
+  { n: "02", title: "Dodaj proizvode i pravila", body: "Ubaci cenovnik, dostavu i česta pitanja — ili samo nalepi link svog šopa da pročita katalog. Deset minuta, jednom." },
+  { n: "03", title: "NibaChat odgovara i hvata porudžbine", body: "Kreni u draft režimu i proveri svaki odgovor. Uključi „uživo“ kad stekneš poverenje. Preuzimaš razgovor kad god želiš." },
+  { n: "04", title: "Tim preuzima samo teže slučajeve", body: "Agent radi rutinu; ti i tim ulazite tek kada je potrebna ljudska procena." }
 ];
 
 const FAQ = [
-  { q: "Do I need any technical knowledge?", a: "No. You log in with Facebook, pick your page, and the agent is connected. No Meta developer console, no code, no terminal." },
-  { q: "Will it invent prices or promises?", a: "No — the agent only answers from the knowledge you give it. When it's unsure it says the team will check and hands the conversation to you." },
-  { q: "What happens with complaints or angry customers?", a: "Trigger words (reklamacija, problem, agent, čovek…) immediately silence the bot, flag the conversation and notify you on Telegram." },
-  { q: "Can I try it before it talks to real customers?", a: "Yes — draft mode lets the agent prepare answers without sending, and a built-in test chat lets you interrogate it privately first." },
-  { q: "Which languages does it speak?", a: "Serbian, Bosnian, Croatian and English out of the box, with polite Vi-forms. It replies in the language your customer writes in." },
-  { q: "How is it priced?", a: "A free plan to try it, then paid plans by message volume. Billing is manual for now — no card required to start." }
+  { q: "Da li mi treba tehničko znanje?", a: "Ne. Prijaviš se preko Facebook-a, izabereš stranicu i agent je povezan. Bez Meta developer konzole, bez koda, bez terminala." },
+  { q: "Da li izmišlja cene ili obećanja?", a: "Ne — agent odgovara isključivo iz znanja koje mu daš. Kada nije siguran, kaže da će tim proveriti i prosledi razgovor tebi." },
+  { q: "Šta je sa reklamacijama i nezadovoljnim kupcima?", a: "Ključne reči (reklamacija, problem, agent, čovek…) odmah ućutkaju bota, označe razgovor i obaveste te na Telegramu." },
+  { q: "Mogu li da ga probam pre nego što priča sa kupcima?", a: "Da — draft režim priprema odgovore bez slanja, a ugrađeni test čet ti dozvoljava da ga prvo lično ispitaš." },
+  { q: "Koje jezike govori?", a: "Srpski, bosanski, hrvatski i engleski, uz persiranje. Odgovara na jeziku na kom kupac piše." },
+  { q: "Kako se naplaćuje?", a: "Postoji besplatan plan za probu, a zatim plaćeni planovi prema broju poruka. Naplata je za sada ručna — bez kartice na startu." }
 ];
+
+const PLAN_NAME_SR: Record<string, string> = {
+  Free: "Početni",
+  Basic: "Osnovni",
+  Standard: "Standard",
+  Pro: "Pro",
+  Business: "Biznis",
+  Enterprise: "Korporativni"
+};
+
+const SUPPORT_SR: Record<string, string> = {
+  Community: "Zajednica",
+  Email: "Email podrška",
+  "Priority email": "Prioritetni email",
+  Priority: "Prioritetna podrška",
+  Dedicated: "Posvećena podrška",
+  "Dedicated + SLA": "Posvećena podrška + SLA"
+};
 
 export default function LandingPage() {
   return (
@@ -55,12 +69,11 @@ export default function LandingPage() {
       <main>
         {/* ---------------------------------------------------------------- HERO */}
         <section className="lp-hero flex min-h-[100svh] flex-col">
-          {/* background (pre-optimized WebP + srcset; deliberate over next/image) */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             className="lp-hero-img"
-            src="/hero/hero-dawn-1280.webp"
-            srcSet="/hero/hero-dawn-720.webp 720w, /hero/hero-dawn-1280.webp 1280w, /hero/hero-dawn.webp 2200w"
+            src="/hero/hero-street-1280.webp"
+            srcSet="/hero/hero-street-720.webp 720w, /hero/hero-street-1280.webp 1280w, /hero/hero-street.webp 2200w"
             sizes="100vw"
             alt=""
             aria-hidden="true"
@@ -68,62 +81,64 @@ export default function LandingPage() {
             decoding="async"
           />
           <div className="lp-hero-scrim" />
-          <div className="lp-grain" />
+          <div className="lp-hero-glow" />
 
-          {/* headline block */}
-          <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col justify-center px-5 pb-10 pt-32 md:pt-40">
-            <div className="max-w-2xl reveal in">
-              <p className="eyebrow text-white/70">AI agent · Instagram DM &amp; Messenger</p>
-              <h1 className="font-display mt-5 text-[2.65rem] leading-[1.04] tracking-tight text-white sm:text-6xl md:text-[4.25rem]">
-                Every message answered.
+          <div className="mx-auto grid w-full max-w-6xl flex-1 items-center gap-12 px-5 pb-12 pt-28 md:pt-32 lg:grid-cols-[1.05fr_0.95fr]">
+            {/* left: copy */}
+            <div className="reveal in">
+              <p className="eyebrow eyebrow-ember">AI agent za Instagram i Facebook poruke</p>
+              <h1 className="font-display mt-5 text-[2.6rem] leading-[1.05] tracking-tight text-[color:var(--ink-warm)] sm:text-[3.4rem] lg:text-[4rem]">
+                Svaka poruka odgovorena.
                 <br />
-                <span className="italic text-[color:#f3c9a6]">Every order captured.</span>
+                <span className="italic text-[color:var(--ember-strong)]">Svaka porudžbina uhvaćena.</span>
               </h1>
-              <p className="mt-6 max-w-xl text-lg leading-relaxed text-white/85">
-                NibaChat is an AI agent for Instagram and Facebook DMs. It answers price, delivery and stock questions in
-                seconds, takes complete orders in chat, and hands the tricky ones to your team.
+              <p className="mt-6 max-w-xl text-lg leading-relaxed text-[color:var(--muted)]">
+                NibaChat odgovara na pitanja o cenama, dostavi i stanju proizvoda, prima porudžbine iz Instagram i Facebook
+                poruka i prosleđuje komplikovane slučajeve tvom timu.
               </p>
               <div className="mt-8 flex flex-wrap items-center gap-3">
                 <Link href="/signup" className="pill pill-solid">
-                  Start free
+                  Pokreni besplatno
                 </Link>
-                <a href="#demo" className="pill pill-glass">
-                  See it in action
+                <a href="#demo" className="pill pill-ghost">
+                  Pogledaj kako radi
                 </a>
               </div>
-              <p className="mt-5 text-sm text-white/60">Free plan · no card required · connect in one login</p>
-            </div>
-          </div>
+              <p className="mt-4 text-sm text-[color:var(--muted-2)]">Bez kartice · Povezivanje u jednom koraku</p>
 
-          {/* proof strip near bottom of hero */}
-          <div className="relative z-10 border-t border-white/15">
-            <div className="mx-auto grid max-w-6xl grid-cols-2 gap-y-6 px-5 py-7 md:grid-cols-4">
-              {PROOF.map((p) => (
-                <div key={p.v} className="text-white">
-                  <div className="font-display text-2xl md:text-3xl">{p.k}</div>
-                  <div className="mt-1 text-xs uppercase tracking-wider text-white/60">{p.v}</div>
-                </div>
-              ))}
+              <div className="cap-row mt-8 flex flex-wrap gap-2.5">
+                {CAPS.map((c) => (
+                  <span key={c} className="cap-chip">
+                    <span className="cap-tick">✓</span>
+                    {c}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {/* right: animated product demo */}
+            <div className="reveal reveal-slow flex justify-center lg:justify-end">
+              <HeroDemo />
             </div>
           </div>
         </section>
 
-        {/* ---------------------------------------------------------------- PRODUCT / BENEFITS */}
+        {/* ---------------------------------------------------------------- PRODUCT */}
         <section id="product" className="mx-auto max-w-6xl px-5 py-24 md:py-32">
           <div className="max-w-2xl reveal">
-            <p className="eyebrow eyebrow-ember">What it does</p>
+            <p className="eyebrow eyebrow-ember">Šta radi</p>
             <h2 className="font-display mt-4 text-3xl leading-tight text-[color:var(--ink-warm)] md:text-[2.75rem]">
-              The calm inbox your shop has been missing.
+              Haotičan inboks postaje miran — i naplativ.
             </h2>
             <p className="mt-4 text-lg leading-relaxed text-[color:var(--muted)]">
-              Repetitive questions — price, delivery, “is this in stock?” — answered the moment they arrive. You keep the
-              conversations that matter; the agent quietly handles the rest.
+              Pitanja koja se ponavljaju — cena, dostava, „ima li na stanju“ — rešena čim stignu. Ti zadržavaš razgovore koji su
+              bitni; agent tiho rešava sve ostalo.
             </p>
           </div>
 
           <div className="mt-14 grid gap-5 md:grid-cols-3">
             {BENEFITS.map((b, i) => (
-              <div key={b.title} className={`lp-card reveal p-7 md:p-8`} style={{ transitionDelay: `${i * 90}ms` }}>
+              <div key={b.title} className="lp-card lp-lift reveal p-7 md:p-8" style={{ transitionDelay: `${i * 90}ms` }}>
                 <span className="eyebrow eyebrow-ember">{b.tag}</span>
                 <h3 className="font-display mt-4 text-xl text-[color:var(--ink-warm)]">{b.title}</h3>
                 <p className="mt-3 text-[15px] leading-relaxed text-[color:var(--muted)]">{b.body}</p>
@@ -132,21 +147,21 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ---------------------------------------------------------------- HOW IT WORKS */}
+        {/* ---------------------------------------------------------------- HOW */}
         <section id="how" className="border-y border-[color:var(--line)] bg-[color:var(--paper-2)]">
           <div className="mx-auto max-w-6xl px-5 py-24 md:py-32">
             <div className="max-w-2xl reveal">
-              <p className="eyebrow eyebrow-ember">How it works</p>
+              <p className="eyebrow eyebrow-ember">Kako radi</p>
               <h2 className="font-display mt-4 text-3xl leading-tight text-[color:var(--ink-warm)] md:text-[2.75rem]">
-                Live in an afternoon. Yours forever after.
+                Spremno za pola dana. Tvoje zauvek.
               </h2>
             </div>
-            <div className="mt-14 grid gap-x-8 gap-y-12 md:grid-cols-3">
+            <div className="mt-14 grid gap-x-8 gap-y-12 sm:grid-cols-2 lg:grid-cols-4">
               {STEPS.map((s, i) => (
-                <div key={s.n} className="reveal" style={{ transitionDelay: `${i * 90}ms` }}>
+                <div key={s.n} className="reveal" style={{ transitionDelay: `${i * 80}ms` }}>
                   <div className="font-display text-4xl text-[color:var(--ember-strong)]">{s.n}</div>
                   <div className="mt-4 h-px w-12 bg-[color:var(--ember)]/50" />
-                  <h3 className="font-display mt-5 text-xl text-[color:var(--ink-warm)]">{s.title}</h3>
+                  <h3 className="font-display mt-5 text-lg leading-snug text-[color:var(--ink-warm)]">{s.title}</h3>
                   <p className="mt-3 text-[15px] leading-relaxed text-[color:var(--muted)]">{s.body}</p>
                 </div>
               ))}
@@ -154,27 +169,24 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ---------------------------------------------------------------- SEE IT IN ACTION (dark band) */}
+        {/* ---------------------------------------------------------------- LIVE DEMO (dark) */}
         <section id="demo" className="bg-[color:var(--night)] text-white">
           <div className="mx-auto grid max-w-6xl items-center gap-14 px-5 py-24 md:grid-cols-2 md:py-32">
             <div className="reveal">
-              <p className="eyebrow text-white/45">See it in action</p>
+              <p className="eyebrow text-white/45">Uživo demo</p>
               <h2 className="font-display mt-4 text-3xl leading-tight md:text-[2.75rem]">
-                Talk to it. It answers like your best salesperson would.
+                Pričaj sa agentom. Odgovara kao tvoj najbolji prodavac.
               </h2>
               <p className="mt-5 max-w-md text-lg leading-relaxed text-white/70">
-                Short, warm, on-brand replies — in the customer&apos;s language. Try a few questions on the right. This demo
-                uses canned answers; your live agent replies from your own catalog and rules.
+                Kratki, topli odgovori — na jeziku kupca. Probaj par pitanja desno. Ovaj demo koristi unapred spremljene
+                odgovore; tvoj agent uživo odgovara iz tvog kataloga i tvojih pravila.
               </p>
               <div className="mt-8 flex flex-wrap gap-3">
                 <Link href="/signup" className="pill pill-solid">
-                  Start free
+                  Pokreni besplatno
                 </Link>
-                <a
-                  href="mailto:demo@nibachat.agency?subject=Live%20demo%20request"
-                  className="pill pill-glass"
-                >
-                  Book a live demo
+                <a href="mailto:demo@nibachat.agency?subject=Zahtev%20za%20demo" className="pill pill-glass">
+                  Zakaži demo
                 </a>
               </div>
             </div>
@@ -187,12 +199,12 @@ export default function LandingPage() {
         {/* ---------------------------------------------------------------- PRICING */}
         <section id="pricing" className="mx-auto max-w-6xl px-5 py-24 md:py-32">
           <div className="max-w-2xl reveal">
-            <p className="eyebrow eyebrow-ember">Pricing</p>
+            <p className="eyebrow eyebrow-ember">Cene</p>
             <h2 className="font-display mt-4 text-3xl leading-tight text-[color:var(--ink-warm)] md:text-[2.75rem]">
-              Start free. Pay as the inbox grows.
+              Počni besplatno. Plaćaš kako inboks raste.
             </h2>
             <p className="mt-4 text-lg leading-relaxed text-[color:var(--muted)]">
-              No card to begin. Billing is manual for now — pick a plan and we&apos;ll set you up.
+              Bez kartice na startu. Naplata je za sada ručna — izaberi plan i mi te povežemo.
             </p>
           </div>
 
@@ -201,40 +213,41 @@ export default function LandingPage() {
               <div
                 key={p.id}
                 className={`reveal relative flex flex-col rounded-[1.5rem] p-7 ${
-                  p.highlight
-                    ? "bg-[color:var(--night)] text-white shadow-[0_30px_70px_-40px_rgba(13,26,38,0.7)]"
-                    : "lp-card"
+                  p.highlight ? "bg-[color:var(--night)] text-white shadow-[0_30px_70px_-40px_rgba(13,26,38,0.7)]" : "lp-card lp-lift"
                 }`}
                 style={{ transitionDelay: `${(i % 3) * 80}ms` }}
               >
                 {p.highlight && (
                   <span className="absolute right-6 top-7 rounded-full bg-[color:var(--ember-strong)] px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-white">
-                    Popular
+                    Najpopularniji
                   </span>
                 )}
-                <h3 className={`font-display text-xl ${p.highlight ? "text-white" : "text-[color:var(--ink-warm)]"}`}>{p.name}</h3>
+                <h3 className={`font-display text-xl ${p.highlight ? "text-white" : "text-[color:var(--ink-warm)]"}`}>{PLAN_NAME_SR[p.name] ?? p.name}</h3>
                 <div className={`mt-3 font-display text-4xl ${p.highlight ? "text-white" : "text-[color:var(--ink-warm)]"}`}>
-                  {p.priceEur === null ? "Let's talk" : p.priceEur === 0 ? "€0" : `€${p.priceEur}`}
+                  {p.priceEur === null ? "Po dogovoru" : p.priceEur === 0 ? "Besplatno" : `€${p.priceEur}`}
                   {p.priceEur !== null && p.priceEur > 0 && (
-                    <span className={`text-sm font-normal ${p.highlight ? "text-white/60" : "text-[color:var(--muted-2)]"}`}> /month</span>
+                    <span className={`text-sm font-normal ${p.highlight ? "text-white/60" : "text-[color:var(--muted-2)]"}`}> /mes</span>
                   )}
                 </div>
                 <ul className={`mt-5 flex-1 space-y-2 text-sm ${p.highlight ? "text-white/75" : "text-[color:var(--muted)]"}`}>
-                  <li>{p.messagesPerMonth === Infinity ? "Unlimited" : p.messagesPerMonth.toLocaleString()} messages / month</li>
-                  <li>{p.aiRepliesPerMonth === Infinity ? "Unlimited" : p.aiRepliesPerMonth.toLocaleString()} AI replies / month</li>
+                  <li>{p.messagesPerMonth === Infinity ? "Neograničeno" : p.messagesPerMonth.toLocaleString("sr-RS")} poruka / mesec</li>
+                  <li>{p.aiRepliesPerMonth === Infinity ? "Neograničeno" : p.aiRepliesPerMonth.toLocaleString("sr-RS")} AI odgovora / mesec</li>
                   <li>
-                    {p.channels === Infinity ? "Unlimited" : p.channels} channel{p.channels === 1 ? "" : "s"} ·{" "}
-                    {p.knowledgeSources === Infinity ? "unlimited" : p.knowledgeSources} knowledge entries
+                    {p.channels === Infinity ? "Neograničeno" : p.channels} {p.channels === 1 ? "kanal" : "kanala"} ·{" "}
+                    {p.knowledgeSources === Infinity ? "neograničeno" : p.knowledgeSources} izvora znanja
                   </li>
-                  <li>{p.handoff ? "Human handoff" : "No handoff"} · {p.sheetOrders ? "Google Sheet orders" : "Dashboard orders"}</li>
-                  <li>{p.notifications ? "Telegram / WhatsApp alerts" : "Email alerts"} · {p.analytics} analytics</li>
-                  <li>{p.support}</li>
+                  <li>{p.handoff ? "Predaja timu" : "Bez predaje"} · {p.sheetOrders ? "Porudžbine u Google tabeli" : "Porudžbine u panelu"}</li>
+                  <li>
+                    {p.notifications ? "Telegram / WhatsApp obaveštenja" : "Email obaveštenja"} ·{" "}
+                    {p.analytics === "advanced" ? "napredna analitika" : "osnovna analitika"}
+                  </li>
+                  <li>{SUPPORT_SR[p.support] ?? p.support}</li>
                 </ul>
                 <Link
                   href={p.priceEur === null ? "mailto:sales@nibachat.agency?subject=Enterprise" : "/signup"}
                   className={`pill mt-7 w-full ${p.highlight ? "pill-solid" : "pill-ghost"}`}
                 >
-                  {p.priceEur === 0 ? "Start free" : p.priceEur === null ? "Contact us" : "Choose plan"}
+                  {p.priceEur === 0 ? "Pokreni besplatno" : p.priceEur === null ? "Kontaktiraj nas" : "Izaberi plan"}
                 </Link>
               </div>
             ))}
@@ -242,12 +255,12 @@ export default function LandingPage() {
         </section>
 
         {/* ---------------------------------------------------------------- FAQ */}
-        <section className="border-t border-[color:var(--line)] bg-[color:var(--paper-2)]">
+        <section id="faq" className="border-t border-[color:var(--line)] bg-[color:var(--paper-2)]">
           <div className="mx-auto grid max-w-6xl gap-12 px-5 py-24 md:grid-cols-[0.8fr_1.2fr] md:py-32">
             <div className="reveal">
-              <p className="eyebrow eyebrow-ember">Questions</p>
+              <p className="eyebrow eyebrow-ember">Česta pitanja</p>
               <h2 className="font-display mt-4 text-3xl leading-tight text-[color:var(--ink-warm)] md:text-4xl">
-                Everything you&apos;re wondering, before you sign up.
+                Sve što te zanima, pre nego što se prijaviš.
               </h2>
             </div>
             <div className="reveal divide-y divide-[color:var(--line)]">
@@ -266,55 +279,33 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ---------------------------------------------------------------- JOURNAL (slim) */}
-        <section className="mx-auto max-w-6xl px-5 py-20">
-          <div className="flex items-end justify-between reveal">
-            <h2 className="font-display text-2xl text-[color:var(--ink-warm)] md:text-3xl">From the journal</h2>
-            <Link href="/blog" className="text-sm text-[color:var(--ember-strong)] hover:underline">
-              All articles →
-            </Link>
-          </div>
-          <div className="mt-8 grid gap-5 md:grid-cols-3">
-            {BLOG_POSTS.slice(0, 3).map((p, i) => (
-              <Link key={p.slug} href={`/blog/${p.slug}`} className="reveal group" style={{ transitionDelay: `${i * 80}ms` }}>
-                <article className="lp-card h-full p-6 transition group-hover:-translate-y-1">
-                  <div className="text-xs uppercase tracking-wider text-[color:var(--muted-2)]">{p.date}</div>
-                  <h3 className="font-display mt-2 text-lg leading-snug text-[color:var(--ink-warm)]">{p.title}</h3>
-                  <p className="mt-2 line-clamp-3 text-sm leading-relaxed text-[color:var(--muted)]">{p.description}</p>
-                </article>
-              </Link>
-            ))}
-          </div>
-        </section>
-
-        {/* ---------------------------------------------------------------- FINAL CTA (image band) */}
+        {/* ---------------------------------------------------------------- FINAL CTA */}
         <section className="relative isolate overflow-hidden">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             className="absolute inset-0 -z-20 h-full w-full object-cover"
-            src="/hero/cta-dawn-960.webp"
-            srcSet="/hero/cta-dawn-960.webp 960w, /hero/cta-dawn.webp 1920w"
+            src="/hero/cta-street-960.webp"
+            srcSet="/hero/cta-street-960.webp 960w, /hero/cta-street.webp 1920w"
             sizes="100vw"
             alt=""
             aria-hidden="true"
             loading="lazy"
             decoding="async"
           />
-          <div className="absolute inset-0 -z-10 bg-[linear-gradient(180deg,rgba(9,17,26,0.55),rgba(9,17,26,0.35))]" />
+          <div className="absolute inset-0 -z-10 bg-[linear-gradient(180deg,rgba(13,26,38,0.62),rgba(13,26,38,0.48))]" />
           <div className="mx-auto max-w-3xl px-5 py-28 text-center md:py-36">
             <h2 className="font-display text-3xl leading-tight text-white md:text-5xl reveal">
-              See it answer your own customers.
+              Prestani da gubiš kupce u porukama.
             </h2>
-            <p className="mx-auto mt-5 max-w-xl text-lg text-white/80 reveal">
-              Book a 20-minute demo — we connect a test page, train the agent on your products, and you watch it work. Or just
-              start free and see for yourself.
+            <p className="mx-auto mt-5 max-w-xl text-lg text-white/85 reveal">
+              Pusti NibaChat da odgovara i hvata porudžbine dok ti vodiš posao. Poveži se za par minuta i gledaj kako radi.
             </p>
             <div className="mt-9 flex flex-wrap justify-center gap-3 reveal">
               <Link href="/signup" className="pill pill-solid">
-                Start free
+                Pokreni besplatno
               </Link>
-              <a href="mailto:demo@nibachat.agency?subject=Live%20demo%20request" className="pill pill-glass">
-                Book a live demo
+              <a href="mailto:demo@nibachat.agency?subject=Zahtev%20za%20demo" className="pill pill-glass">
+                Zakaži demo
               </a>
             </div>
           </div>
@@ -325,44 +316,44 @@ export default function LandingPage() {
       <footer className="bg-[color:var(--night)] text-white/70">
         <div className="mx-auto grid max-w-6xl gap-10 px-5 py-16 md:grid-cols-[1.4fr_1fr_1fr_1fr]">
           <div>
-            <NibaLogo markColor="#dd8a57" plain />
+            <NibaLogo markColor="#d9814e" plain />
             <p className="mt-4 max-w-xs text-sm leading-relaxed text-white/55">
-              AI agents for Instagram DM and Facebook Messenger. Built for social-commerce shops across the region.
+              AI agenti za Instagram i Facebook poruke. Napravljeno za radnje koje prodaju kroz DM.
             </p>
           </div>
           <FooterCol
-            title="Product"
+            title="Proizvod"
             links={[
-              { href: "#product", label: "Features" },
-              { href: "#pricing", label: "Pricing" },
-              { href: "/blog", label: "Journal" }
+              { href: "#product", label: "Funkcije" },
+              { href: "#pricing", label: "Cene" },
+              { href: "/blog", label: "Blog" }
             ]}
           />
           <FooterCol
-            title="Legal"
+            title="Pravno"
             links={[
-              { href: "/legal/privacy", label: "Privacy" },
-              { href: "/legal/terms", label: "Terms" },
-              { href: "/legal/cookies", label: "Cookies" },
-              { href: "/legal/data-deletion", label: "Data deletion" },
+              { href: "/legal/privacy", label: "Privatnost" },
+              { href: "/legal/terms", label: "Uslovi korišćenja" },
+              { href: "/legal/cookies", label: "Kolačići" },
+              { href: "/legal/data-deletion", label: "Brisanje podataka" },
               { href: "/legal/gdpr", label: "GDPR" }
             ]}
           />
           <div>
-            <div className="text-sm font-semibold text-white">Languages</div>
-            <p className="mt-3 text-sm text-white/55">English · Srpski · Bosanski · Hrvatski</p>
+            <div className="text-sm font-semibold text-white">Jezici</div>
+            <p className="mt-3 text-sm text-white/55">Srpski · Bosanski · Hrvatski · English</p>
             <div className="mt-6 flex gap-2">
               <Link href="/login" className="pill pill-glass !px-4 !py-2 !text-sm">
-                Log in
+                Prijava
               </Link>
               <Link href="/signup" className="pill pill-solid !px-4 !py-2 !text-sm">
-                Start free
+                Pokreni besplatno
               </Link>
             </div>
           </div>
         </div>
         <div className="border-t border-white/10">
-          <div className="mx-auto max-w-6xl px-5 py-5 text-xs text-white/40">© 2026 NibaChat Agent. All rights reserved.</div>
+          <div className="mx-auto max-w-6xl px-5 py-5 text-xs text-white/40">© 2026 NibaChat Agent. Sva prava zadržana.</div>
         </div>
       </footer>
     </div>

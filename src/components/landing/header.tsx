@@ -5,9 +5,10 @@ import Link from "next/link";
 import { NibaLogo } from "@/components/logo";
 
 const NAV = [
-  { href: "#product", label: "Product" },
-  { href: "#how", label: "How it works" },
-  { href: "#pricing", label: "Pricing" }
+  { href: "#product", label: "Funkcije" },
+  { href: "#how", label: "Kako radi" },
+  { href: "#pricing", label: "Cene" },
+  { href: "#faq", label: "Česta pitanja" }
 ];
 
 export function LandingHeader() {
@@ -23,42 +24,34 @@ export function LandingHeader() {
 
   return (
     <header className="lp-header" data-scrolled={scrolled} data-open={open}>
-      <nav
-        className={`mx-auto flex max-w-6xl items-center justify-between px-5 py-4 transition-colors ${
-          scrolled ? "text-[color:var(--ink-warm)]" : "text-white"
-        }`}
-        aria-label="Primary"
-      >
-        <Link href="/" className="shrink-0" aria-label="NibaChat Agent home">
-          <NibaLogo markColor="#dd8a57" plain />
+      {/* dark text throughout — the V2 hero is bright */}
+      <nav className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4 text-[color:var(--ink-warm)]" aria-label="Glavna navigacija">
+        <Link href="/" className="shrink-0" aria-label="NibaChat Agent — početna">
+          <NibaLogo markColor="#b8511f" plain />
         </Link>
 
         <div className="hidden items-center gap-8 text-sm md:flex">
           {NAV.map((n) => (
-            <a key={n.href} href={n.href} className="opacity-80 transition hover:opacity-100">
+            <a key={n.href} href={n.href} className="opacity-75 transition hover:opacity-100">
               {n.label}
             </a>
           ))}
         </div>
 
         <div className="hidden items-center gap-2 md:flex">
-          <Link
-            href="/login"
-            className={`pill ${scrolled ? "pill-ghost" : "pill-glass"} !px-4 !py-2 !text-sm`}
-          >
-            Log in
+          <Link href="/login" className="pill pill-ghost !px-4 !py-2 !text-sm">
+            Prijava
           </Link>
           <Link href="/signup" className="pill pill-solid !px-5 !py-2 !text-sm">
-            Start free
+            Pokreni besplatno
           </Link>
         </div>
 
-        {/* mobile toggle */}
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
-          aria-label={open ? "Close menu" : "Open menu"}
+          aria-label={open ? "Zatvori meni" : "Otvori meni"}
           className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-current/25 md:hidden"
         >
           <span className="relative block h-3.5 w-4">
@@ -69,7 +62,6 @@ export function LandingHeader() {
         </button>
       </nav>
 
-      {/* mobile panel */}
       {open && (
         <div className="border-t border-[color:var(--line)] bg-[color:var(--paper)]/95 backdrop-blur-md md:hidden">
           <div className="mx-auto flex max-w-6xl flex-col gap-1 px-5 py-4 text-[color:var(--ink-warm)]">
@@ -80,10 +72,10 @@ export function LandingHeader() {
             ))}
             <div className="mt-2 flex gap-2">
               <Link href="/login" onClick={() => setOpen(false)} className="pill pill-ghost flex-1">
-                Log in
+                Prijava
               </Link>
               <Link href="/signup" onClick={() => setOpen(false)} className="pill pill-solid flex-1">
-                Start free
+                Pokreni besplatno
               </Link>
             </div>
           </div>

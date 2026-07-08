@@ -2,12 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 
-/** Landing demo agent. 100% static answers — never calls AI (cost: €0). */
+/** Landing demo agent. 100% statični odgovori — nikad ne poziva AI (trošak: €0). */
 const DEMO_QA: Array<{ q: string; a: string }> = [
-  { q: "Koliko košta dostava?", a: "Dostava je 350 din, a besplatna za porudžbine preko 5.000 din. 🚚" },
-  { q: "What's the delivery time?", a: "Orders ship within 24h and usually arrive in 2–3 working days." },
-  { q: "Kako da poručim?", a: "Recite mi šta želite — uzeću Vaše ime, adresu i broj telefona ovde u poruci. 🛒" },
-  { q: "Do you reply on Instagram too?", a: "Yes — one agent answers both Instagram DMs and Facebook Messenger, same knowledge and tone." }
+  { q: "Koliko košta dostava?", a: "Dostava je 350 RSD, a besplatna za porudžbine preko 5.000 RSD. 🚚" },
+  { q: "Imate li u broju M?", a: "Da, broj M je trenutno dostupan. Želite li da Vam ga rezervišem?" },
+  { q: "Kako da poručim?", a: "Recite mi šta želite — uzeću ime, adresu i broj telefona ovde u poruci. 🛒" },
+  { q: "Radite li i na Fejsbuku?", a: "Da — isti agent odgovara i na Instagram i na Facebook poruke, sa istim znanjem i tonom." }
 ];
 
 interface Msg {
@@ -16,7 +16,7 @@ interface Msg {
 }
 
 export function AgentDemo() {
-  const [messages, setMessages] = useState<Msg[]>([{ from: "bot", text: "Zdravo! 👋 I'm a NibaChat demo agent — tap a question below." }]);
+  const [messages, setMessages] = useState<Msg[]>([{ from: "bot", text: "Zdravo! 👋 Ja sam NibaChat demo agent — dodirni pitanje ispod." }]);
   const [typing, setTyping] = useState(false);
   const [asked, setAsked] = useState<Set<string>>(new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -48,7 +48,7 @@ export function AgentDemo() {
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />
               <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
             </span>
-            Active now
+            Aktivan
           </div>
         </div>
       </div>
