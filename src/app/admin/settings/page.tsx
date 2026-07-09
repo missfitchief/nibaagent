@@ -1,13 +1,15 @@
 import { requireAdmin } from "@/lib/auth/guards";
 import { env } from "@/lib/env";
 import { platformOverview, resolvePlatform } from "@/lib/platform";
+import { metaConfigCheck } from "@/lib/meta-check";
+import { MetaCheckPanel } from "@/components/meta-check-panel";
 import { PlatformSettingsForm, type PlatformField } from "./settings-form";
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminSettingsPage() {
   await requireAdmin();
-  const [overview, appUrl] = await Promise.all([platformOverview(), resolvePlatform("APP_URL")]);
+  const [overview, appUrl, metaCheck] = await Promise.all([platformOverview(), resolvePlatform("APP_URL"), metaConfigCheck()]);
   const fields: PlatformField[] = overview.map((o) => ({ key: o.key, secret: o.secret, source: o.source, display: o.display }));
   const e = env();
   const envStatus = [
@@ -26,6 +28,7 @@ export default async function AdminSettingsPage() {
         </p>
       </header>
       <PlatformSettingsForm fields={fields} initialAppUrl={appUrl.value} envStatus={envStatus} />
+      <MetaCheckPanel check={metaCheck} />
     </main>
   );
 }

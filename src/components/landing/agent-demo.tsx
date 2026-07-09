@@ -3,20 +3,20 @@
 import { useEffect, useRef, useState } from "react";
 
 /** Landing demo agent. 100% statični odgovori — nikad ne poziva AI (trošak: €0). */
-const DEMO_QA: Array<{ q: string; a: string }> = [
-  { q: "Koliko košta dostava?", a: "Dostava je 350 RSD, a besplatna za porudžbine preko 5.000 RSD. 🚚" },
-  { q: "Imate li u broju M?", a: "Da, broj M je trenutno dostupan. Želite li da Vam ga rezervišem?" },
-  { q: "Kako da poručim?", a: "Recite mi šta želite — uzeću ime, adresu i broj telefona ovde u poruci. 🛒" },
-  { q: "Radite li i na Fejsbuku?", a: "Da — isti agent odgovara i na Instagram i na Facebook poruke, sa istim znanjem i tonom." }
-];
-
 interface Msg {
   from: "user" | "bot";
   text: string;
 }
 
-export function AgentDemo() {
-  const [messages, setMessages] = useState<Msg[]>([{ from: "bot", text: "Zdravo! 👋 Ja sam NibaChat demo agent — dodirni pitanje ispod." }]);
+export interface AgentDemoCopy {
+  greeting: string;
+  active: string;
+  qa: { q: string; a: string }[];
+}
+
+export function AgentDemo({ t }: { t: AgentDemoCopy }) {
+  const DEMO_QA = t.qa;
+  const [messages, setMessages] = useState<Msg[]>([{ from: "bot", text: t.greeting }]);
   const [typing, setTyping] = useState(false);
   const [asked, setAsked] = useState<Set<string>>(new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -48,7 +48,7 @@ export function AgentDemo() {
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />
               <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
             </span>
-            Aktivan
+            {t.active}
           </div>
         </div>
       </div>

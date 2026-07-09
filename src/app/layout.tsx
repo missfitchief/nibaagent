@@ -33,15 +33,20 @@ export const metadata: Metadata = {
   description:
     "NibaChat Agent replies instantly to Instagram and Facebook messages, captures orders, hands off to humans when needed, and learns your products, prices and FAQs. Built for social-commerce businesses.",
   keywords: [
+    "AI chatbot za Instagram",
+    "AI chatbot za Facebook",
+    "chatbot za online prodavnice",
+    "automatizacija poruka",
+    "korisnička podrška za e-commerce",
+    "chatbot za prodaju",
+    "Instagram prodaja automatizacija",
+    "Facebook Messenger chatbot",
+    "AI agent za biznis",
     "AI agent",
     "Instagram DM automation",
-    "Facebook Messenger chatbot",
-    "automated customer support",
-    "order collection",
-    "social commerce automation",
-    "e-commerce AI assistant",
-    "AI chatbot for Balkan businesses"
+    "order collection"
   ],
+  icons: { icon: "/icon.svg", apple: "/icon.svg" },
   openGraph: {
     title: "NibaChat Agent — AI agent for Instagram DM & Facebook Messenger",
     description: "Reply instantly. Capture orders. Save time. Human handoff when needed.",

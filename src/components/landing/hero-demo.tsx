@@ -15,7 +15,20 @@ import { useEffect, useRef, useState } from "react";
  */
 const DONE = 8;
 
-export function HeroDemo() {
+export interface HeroDemoCopy {
+  channel: string;
+  agentSub: string;
+  cust: string;
+  bot: string;
+  orderTitle: string;
+  orderTag: string;
+  orderItem: string;
+  orderMetaSize: string;
+  orderMetaDelivery: string;
+  chips: string[];
+}
+
+export function HeroDemo({ t }: { t: HeroDemoCopy }) {
   const [phase, setPhase] = useState<number>(DONE); // SSR + no-JS = finished state
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -49,17 +62,15 @@ export function HeroDemo() {
         <div className="hd-id">
           <span className="hd-name">NibaChat</span>
           <span className="hd-sub">
-            <span className="hd-dot" /> Automatski odgovor
+            <span className="hd-dot" /> {t.agentSub}
           </span>
         </div>
-        <span className="hd-channel">Instagram DM</span>
+        <span className="hd-channel">{t.channel}</span>
       </div>
 
       {/* transcript */}
       <div className="hd-body">
-        <div className={`hd-msg hd-cust ${show(1)}`}>
-          Zdravo 👋 Imate li ovu haljinu u broju <strong>M</strong>? Može li dostava danas?
-        </div>
+        <div className={`hd-msg hd-cust ${show(1)}`}>{t.cust}</div>
 
         {/* typing shows only during phase 2; reply takes its place from phase 3 */}
         {typing ? (
@@ -69,32 +80,32 @@ export function HeroDemo() {
             <span className="hd-tdot" />
           </div>
         ) : (
-          <div className={`hd-msg hd-bot ${show(3)}`}>
-            Imamo broj <strong>M</strong> ✓ Dostava danas je moguća za porudžbine do 15h. Da rezervišem za Vas?
-          </div>
+          <div className={`hd-msg hd-bot ${show(3)}`}>{t.bot}</div>
         )}
 
         {/* order card */}
         <div className={`hd-order ${show(4)}`}>
           <div className="hd-order-head">
-            <span>Porudžbina</span>
-            <span className="hd-order-tag">Spremno za potvrdu</span>
+            <span>{t.orderTitle}</span>
+            <span className="hd-order-tag">{t.orderTag}</span>
           </div>
           <div className="hd-order-row">
-            <span>Lanena haljina — bež</span>
+            <span>{t.orderItem}</span>
             <span className="hd-order-price">5.900 RSD</span>
           </div>
           <div className="hd-order-meta">
-            <span>Broj: M</span>
-            <span>Dostava: danas</span>
+            <span>{t.orderMetaSize}</span>
+            <span>{t.orderMetaDelivery}</span>
           </div>
         </div>
 
         {/* status chips */}
         <div className="hd-chips">
-          <span className={`hd-chip ${show(5)}`}>✓ Kupac odgovoren</span>
-          <span className={`hd-chip ${show(6)}`}>✓ Porudžbina uhvaćena</span>
-          <span className={`hd-chip ${show(7)}`}>✓ Tim obavešten</span>
+          {t.chips.map((c, i) => (
+            <span key={i} className={`hd-chip ${show(5 + i)}`}>
+              ✓ {c}
+            </span>
+          ))}
         </div>
       </div>
     </div>

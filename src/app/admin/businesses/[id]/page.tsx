@@ -20,7 +20,6 @@ import { knowledgeSources } from "@/lib/db/schema";
 import { listProducts } from "@/lib/products";
 import { listMaskedSecrets } from "@/lib/secrets";
 import { missingSetup, setupChecklist } from "@/lib/checklist";
-import { env, metaRedirectUri } from "@/lib/env";
 import { deleteKnowledgeAction } from "@/lib/actions/knowledge";
 import { BotSettingsForm } from "@/app/app/bot/form";
 import { KnowledgeForm } from "@/app/app/knowledge/form";
@@ -45,6 +44,8 @@ import { InviteForm } from "@/app/app/team/form";
 import { SecretsPanel } from "@/app/app/settings/secrets";
 import { AdminBusinessForm, DeleteBusinessForm, ManualConnectionForm, TelegramTestButton } from "./forms";
 import type { BusinessHours } from "@/lib/hours";
+import { metaConfigCheck } from "@/lib/meta-check";
+import { MetaCheckPanel } from "@/components/meta-check-panel";
 
 const TABS = [
   "overview",
@@ -139,7 +140,10 @@ export default async function AdminBusinessDetail({
       ? await d.select().from(knowledgeSources).where(and(eq(knowledgeSources.businessId, id), eq(knowledgeSources.status, "active"))).orderBy(desc(knowledgeSources.createdAt))
       : [];
   const telegramSecrets = tab === "telegram" ? await listMaskedSecrets(id) : [];
-  const metaConfigured = Boolean(env().META_APP_ID && env().META_APP_SECRET);
+  // Resolve Meta config from platform settings (DB → env), not env only, so the
+  // Connect button enables when Meta is configured in /admin/settings.
+  const metaCheck = tab === "channels" ? await metaConfigCheck() : null;
+  const metaConfigured = metaCheck?.ready ?? false;
   const dailyMax = Math.max(1, ...daily.map((r) => r.total));
 
   return (
@@ -262,26 +266,39 @@ export default async function AdminBusinessDetail({
 
       {tab === "channels" && (
         <>
-          {!metaConfigured && (
-            <Card className="border-amber-200 bg-amber-50/50">
-              <p className="text-sm text-amber-800">Meta app is not configured. Add META_APP_ID, META_APP_SECRET, APP_URL to enable one-click connect. Manual token entry below still works.</p>
-            </Card>
-          )}
           <Card>
             <h2 className="font-semibold">Facebook / Instagram</h2>
-            <p className="mt-1 text-sm text-[var(--ink-soft)]">One login connects this business&apos;s Page + Instagram; the token is stored encrypted under this business only.</p>
-            <a
-              href={`/api/meta/start?businessId=${biz.id}`}
-              className={`mt-3 inline-flex items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold ${metaConfigured ? "btn-primary" : "pointer-events-none opacity-50 border border-[var(--card-border)]"}`}
-            >
-              ⓕ Connect Facebook / Instagram
-            </a>
-            <p className="mt-2 text-xs text-[var(--ink-soft)]">OAuth redirect: <code className="rounded bg-slate-100 px-1">{metaRedirectUri()}</code></p>
+            <p className="mt-1 text-sm text-[var(--ink-soft)]">Jedno prijavljivanje povezuje stranicu i Instagram ove firme; token se čuva šifrovan samo pod ovom firmom.</p>
+            {metaConfigured ? (
+              <a
+                href={`/api/meta/start?businessId=${biz.id}`}
+                className="btn-primary mt-3 inline-flex items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold"
+              >
+                ⓕ Poveži Facebook / Instagram
+              </a>
+            ) : (
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <span className="inline-flex cursor-not-allowed items-center gap-2 rounded-xl border border-[var(--card-border)] px-5 py-2.5 text-sm font-semibold opacity-50">
+                  ⓕ Poveži Facebook / Instagram
+                </span>
+                <a href="/admin/settings" className="text-sm font-medium text-sky-600 hover:underline">
+                  Podesi Meta u Podešavanjima aplikacije →
+                </a>
+              </div>
+            )}
+            {metaCheck && (
+              <p className="mt-2 text-xs text-[var(--ink-soft)]">
+                OAuth callback: <code className="rounded bg-slate-100 px-1">{metaCheck.callbackUrl}</code>
+              </p>
+            )}
           </Card>
+
+          {metaCheck && <MetaCheckPanel check={metaCheck} businessId={biz.id} />}
+
           <Card>
-            <h2 className="font-semibold">Connected channels</h2>
+            <h2 className="font-semibold">Povezani kanali</h2>
             {connections.length === 0 ? (
-              <p className="mt-2 text-sm text-[var(--ink-soft)]">None connected. Use the button above or manual entry below.</p>
+              <p className="mt-2 text-sm text-[var(--ink-soft)]">Ništa još nije povezano. Koristi dugme iznad ili ručni unos ispod.</p>
             ) : (
               <ul className="mt-2 space-y-2 text-sm">
                 {connections.map((c) => (
