@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import type { MetaConfigCheck } from "@/lib/meta-check";
 import { Card } from "@/components/ui";
 
@@ -105,9 +106,9 @@ export function MetaCheckPanel({ check, businessId }: { check: MetaConfigCheck; 
       {!check.ready && (
         <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
           Nedostaje Meta App ID ili App Secret. Unesi ih u{" "}
-          <a href="/admin/settings" className="font-semibold underline">
+          <Link href="/admin/settings" className="font-semibold underline">
             Podešavanja aplikacije
-          </a>{" "}
+          </Link>{" "}
           da bi „Poveži Facebook / Instagram“ dugme radilo.
         </div>
       )}

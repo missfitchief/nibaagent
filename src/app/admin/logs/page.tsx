@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
 import { requireAdmin } from "@/lib/auth/guards";
 import { db } from "@/lib/db/client";
@@ -32,15 +33,15 @@ export default async function LogsPage({
       <header className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Logs & errors</h1>
         <div className="flex gap-2 text-sm">
-          <a href="/admin/logs" className={`rounded-lg px-3 py-1.5 ${!level ? "btn-primary" : "border border-[var(--card-border)] bg-white/60"}`}>
+          <Link href="/admin/logs" className={`rounded-lg px-3 py-1.5 ${!level ? "btn-primary" : "border border-[var(--card-border)] bg-white/60"}`}>
             All
-          </a>
-          <a
+          </Link>
+          <Link
             href="/admin/logs?level=error"
             className={`rounded-lg px-3 py-1.5 ${level === "error" ? "btn-primary" : "border border-[var(--card-border)] bg-white/60"}`}
           >
             Errors only
-          </a>
+          </Link>
         </div>
       </header>
 

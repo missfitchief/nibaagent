@@ -6,7 +6,7 @@ export interface BlogPost {
   date: string;
   body: string[];
   /** Content language. Undefined = English (legacy posts). */
-  lang?: "sr" | "en";
+  lang?: "sr" | "bs" | "en";
 }
 
 export const BLOG_POSTS: BlogPost[] = [
@@ -154,12 +154,96 @@ export const BLOG_POSTS_SR: BlogPost[] = [
   }
 ];
 
-/** Posts for a given public locale (bs falls back to sr). English legacy posts show for en. */
+/** Bosnian articles — same slugs as the Serbian set, authored in ijekavica. */
+export const BLOG_POSTS_BS: BlogPost[] = [
+  {
+    slug: "ai-chatbot-za-instagram-prodaju",
+    title: "AI chatbot za Instagram prodaju: kako da ne izgubiš kupca",
+    description: "Zašto je brzina odgovora najvažniji faktor prodaje u Instagram porukama i kako AI agent tu pomaže.",
+    date: "2026-07-08",
+    lang: "bs",
+    body: [
+      "Ako prodaješ preko Instagram poruka, tvoj inboks je tvoja radnja. Svako neodgovoreno „koliko košta?“ ili „ima li na stanju?“ je kupac koji izlazi iz radnje.",
+      "Kupci na društvenim mrežama su impulsivni. Vidjeli su objavu, žele proizvod, pitaju cijenu. Ako odgovor stigne dok je želja topla — kupuju. Ako stigne sutra, odavno su otišli dalje.",
+      "AI agent odgovara na 80% ponavljajućih pitanja odmah — cijena, dostava, naručivanje, dostupnost — a komplikovanih 20% prosljeđuje čovjeku. Rezultat: brži odgovori, više narudžbi, manje vremena zalijepljenog za telefon.",
+      "NibaChat se povezuje na tvoju Facebook stranicu i Instagram u jednom koraku, uči tvoje proizvode i pitanja, i počinje da odgovara tvojim tonom — sa prekidačem za ljudsko preuzimanje uvijek na dohvat ruke."
+    ]
+  },
+  {
+    slug: "kako-automatizovati-odgovore-na-facebook-i-instagram-poruke",
+    title: "Kako automatizovati odgovore na Facebook i Instagram poruke",
+    description: "Praktičan vodič: od povezivanja naloga do agenta koji odgovara i noću, bez izmišljanja.",
+    date: "2026-07-08",
+    lang: "bs",
+    body: [
+      "Automatizacija poruka ne znači robotske, hladne odgovore. Znači da rutinska pitanja dobiju tačan odgovor za nekoliko sekundi, a ti dobiješ nazad svoju večer.",
+      "Prvi korak je povezivanje: jednim Facebook prijavljivanjem povezuješ stranicu i Instagram. Tokeni se čuvaju šifrovano — bez developer konzole i bez koda.",
+      "Drugi korak je znanje: dodaš cjenovnik, pravila dostave i najčešća pitanja, ili samo nalijepiš link svog sajta da agent pročita katalog. Deset minuta, jednom.",
+      "Treći korak je povjerenje: kreni u draft režimu i provjeri svaki odgovor prije nego što ga pustiš uživo. Kad vidiš da je tačan, uključiš „uživo“ — i agent preuzima noćnu smjenu."
+    ]
+  },
+  {
+    slug: "chatbot-za-online-prodavnice",
+    title: "Chatbot za online prodavnice: cijena, dostava i stanje bez čekanja",
+    description: "Kako AI agent odgovara na najčešća pitanja e-commerce kupaca i prima narudžbe direktno iz poruke.",
+    date: "2026-07-08",
+    lang: "bs",
+    body: [
+      "Online prodavnica koja prodaje kroz poruke dnevno dobije desetine istih pitanja: cijena, poštarina, rok dostave, veličine, dostupnost, načini plaćanja.",
+      "Umjesto da ih prepisuješ ručno, AI agent odgovara odmah i dosljedno — bez zamora od kopiranja i bez grešaka u pola noći. Kada kupac kaže da želi da naruči, agent prelazi u režim prikupljanja: ime, adresa, grad, telefon.",
+      "Gotova narudžba se čuva u tvom panelu i dodaje u tvoju Google tabelu — istu koju već koristiš za pakovanje. Ako tabela nije dostupna, narudžba je bezbjedno sačuvana u aplikaciji.",
+      "Za pitanja o statusu narudžbe agent odgovara pošteno: „Provjerićemo i javljamo“ — i obavijesti čovjeka, umjesto da izmišlja brojeve za praćenje."
+    ]
+  },
+  {
+    slug: "kako-ai-bot-koristi-bazu-znanja-i-proizvode",
+    title: "Kako AI bot koristi bazu znanja i proizvode",
+    description: "Agent odgovara iz tvojih podataka, ne izmišlja. Kako baza znanja i katalog proizvoda rade zajedno.",
+    date: "2026-07-08",
+    lang: "bs",
+    body: [
+      "Dobar AI agent nije generičko ćaskalo — on odgovara isključivo iz onoga što mu daš. To znanje dolazi iz dva izvora: baze znanja i kataloga proizvoda.",
+      "Baza znanja pokriva opća pitanja: dostava, plaćanje, povrat, radno vrijeme, lokacija, uslovi. Možeš je popuniti ručno ili tako što nalijepiš link svog sajta pa agent izvuče tekst sa stranica „O nama“, „Dostava“, „Česta pitanja“.",
+      "Katalog proizvoda pokriva konkretne činjenice: cijena, stanje, veličine, boje, šifra, slike. Ove činjenice uvijek imaju prednost — ako se sajt i katalog ne slažu oko cijene, agent vjeruje katalogu.",
+      "Kada agent nije siguran, ne pogađa. Kaže da će tim provjeriti i proslijedi razgovor tebi. Tako postaje pametniji vremenom, a nikada ne obećava ono što ne zna."
+    ]
+  },
+  {
+    slug: "kako-smanjiti-vreme-odgovaranja-kupcima",
+    title: "Kako smanjiti vrijeme odgovaranja kupcima",
+    description: "Vrijeme odgovora je najjači pokazatelj konverzije u prodaji kroz poruke. Evo kako da ga skratiš na sekunde.",
+    date: "2026-07-08",
+    lang: "bs",
+    body: [
+      "Mala radnja koja prodaje kroz poruke odgovara na 30–100 poruka dnevno. Uz 2–3 minuta po poruci, to je 1–5 sati kucanja — svakog dana.",
+      "Većina tih poruka su istih deset pitanja. AI agent na njih odgovara u sekundi, 24/7, bez noćne smjene i bez zamora. Čak i u opreznom draft režimu, spremni odgovori prepolove tvoje vrijeme odgovora.",
+      "Meta nagrađuje stranice sa brzim odgovorom: bolji plasman u inboksu i veće povjerenje kupaca. Stranica koja odgovara u sekundi djeluje profesionalno; ona koja odgovara za dan djeluje kao rizik.",
+      "Ušteđeno vrijeme nije samo novac — to su večeri nazad, brža otprema (jer pakuješ umjesto da kucaš) i kupci koji nikada ne čekaju."
+    ]
+  }
+];
+
+const SETS: Record<"sr" | "bs" | "en", BlogPost[]> = {
+  sr: BLOG_POSTS_SR,
+  bs: BLOG_POSTS_BS,
+  en: BLOG_POSTS.filter((p) => (p.lang ?? "en") === "en")
+};
+
+/** Localized post list for a public locale. */
 export function postsFor(locale: "sr" | "bs" | "en"): BlogPost[] {
-  if (locale === "en") return BLOG_POSTS.filter((p) => (p.lang ?? "en") === "en");
-  return BLOG_POSTS_SR;
+  return SETS[locale] ?? BLOG_POSTS_SR;
+}
+
+/** Localized single post by slug (locale set first, then any set). */
+export function getLocalizedPost(locale: "sr" | "bs" | "en", slug: string): BlogPost | undefined {
+  return SETS[locale]?.find((p) => p.slug === slug) ?? getPost(slug);
 }
 
 export function getPost(slug: string): BlogPost | undefined {
-  return [...BLOG_POSTS_SR, ...BLOG_POSTS].find((p) => p.slug === slug);
+  return [...BLOG_POSTS_SR, ...BLOG_POSTS_BS, ...BLOG_POSTS].find((p) => p.slug === slug);
+}
+
+/** All (locale, slug) pairs for static generation. */
+export function allBlogParams(): { locale: "sr" | "bs" | "en"; slug: string }[] {
+  return (["sr", "bs", "en"] as const).flatMap((locale) => SETS[locale].map((p) => ({ locale, slug: p.slug })));
 }

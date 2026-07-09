@@ -33,7 +33,7 @@ export function LandingHeader({ t, locale }: { t: HeaderCopy; locale: Locale }) 
     { href: "#how", label: t.how },
     { href: "#pricing", label: t.pricing },
     { href: "#faq", label: t.faq },
-    { href: "/blog", label: t.blog, link: true }
+    { href: `/${locale}/blog`, label: t.blog, link: true }
   ];
 
   return (

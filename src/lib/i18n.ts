@@ -276,24 +276,35 @@ const en: Dict = {
   blog: { title: "Blog", subtitle: "AI agents, DM commerce, and answering customers faster.", all: "All articles", back: "Back to home", readMore: "Read more" }
 };
 
-/** Bosnian = Serbian base with ijekavica + a few lexical overrides. Missing keys fall back to sr. */
+/** Bosnian — explicitly authored ijekavica for every public string (not a Serbian fallback). */
 const bs: Dict = {
-  ...sr,
   htmlLang: "bs-BA",
+  nav: { features: "Funkcije", how: "Kako radi", pricing: "Cijene", faq: "Česta pitanja", blog: "Blog", login: "Prijava", start: "Pokreni besplatno" },
   hero: {
-    ...sr.hero,
+    eyebrow: "AI agent za Instagram i Facebook poruke",
+    h1a: "Svaka poruka odgovorena.",
     h1b: "Svaka narudžba zabilježena.",
     sub: "NibaChat odgovara na pitanja o cijenama, dostavi i stanju proizvoda, prima narudžbe iz Instagram i Facebook poruka i prosljeđuje komplikovane slučajeve tvom timu.",
+    ctaPrimary: "Pokreni besplatno",
+    ctaSecondary: "Pogledaj kako radi",
+    helper: "Bez kartice · Povezivanje u jednom koraku",
     caps: ["Odgovara o cijeni", "Prima narudžbe", "Provjerava dostavu i stanje", "Radi na Instagram i Facebook"]
   },
   demo: {
-    ...sr.demo,
+    channel: "Instagram poruka",
+    agentSub: "Automatski odgovor",
+    cust: "Zdravo 👋 Imate li ovu haljinu u broju M? Može li dostava danas?",
     bot: "Imamo broj M ✓ Dostava danas je moguća za narudžbe do 15h. Da rezervišem za Vas?",
     orderTitle: "Narudžba",
+    orderTag: "Spremno za potvrdu",
+    orderItem: "Lanena haljina — bež",
+    orderMetaSize: "Broj: M",
+    orderMetaDelivery: "Dostava: danas",
     chips: ["Odgovoreno kupcu", "Narudžba zabilježena", "Tim obaviješten"]
   },
   product: {
-    ...sr.product,
+    eyebrow: "Šta radi",
+    h2: "Haotičan inboks postaje miran — i naplativ.",
     sub: "Pitanja koja se ponavljaju — cijena, dostava, „ima li na stanju“ — riješena čim stignu. Ti zadržavaš razgovore koji su bitni; agent tiho rješava sve ostalo.",
     benefits: [
       { tag: "Brzina", title: "Odgovori prije nego što kupac ode", body: "Na cijenu, dostavu i „ima li na stanju“ agent odgovara istog trenutka. Ti zadržavaš razgovore koji su zaista bitni." },
@@ -302,7 +313,7 @@ const bs: Dict = {
     ]
   },
   how: {
-    ...sr.how,
+    eyebrow: "Kako radi",
     h2: "Spremno za pola dana. Tvoje zauvijek.",
     steps: [
       { title: "Poveži naloge", body: "Jednim Facebook prijavljivanjem povezuješ stranicu i Instagram. Tokeni su šifrovani — bez Meta konzole i bez koda." },
@@ -311,8 +322,76 @@ const bs: Dict = {
       { title: "Tim preuzima samo teže slučajeve", body: "Agent rješava rutinu; ti i tim ulazite tek kada je potrebna ljudska procjena." }
     ]
   },
-  pricing: { ...sr.pricing, unitMessages: "poruka / mjesec", unitReplies: "AI odgovora / mjesec", perMonth: "/mj" },
-  finalCta: { ...sr.finalCta, sub: "Pusti NibaChat da odgovara i prima narudžbe dok ti vodiš posao. Poveži se za par minuta i gledaj kako radi." }
+  live: {
+    eyebrow: "Uživo demo",
+    h2: "Pričaj sa agentom. Odgovara kao tvoj najbolji prodavac.",
+    sub: "Kratki, topli odgovori — na jeziku kupca. Probaj par pitanja desno. Ovaj demo koristi unaprijed spremljene odgovore; tvoj agent uživo odgovara iz tvog kataloga i tvojih pravila.",
+    ctaPrimary: "Pokreni besplatno",
+    ctaSecondary: "Zakaži demo",
+    greeting: "Zdravo! 👋 Ja sam NibaChat demo agent — dodirni pitanje ispod.",
+    active: "Aktivan",
+    qa: [
+      { q: "Koliko košta dostava?", a: "Dostava je 350 RSD, a besplatna za narudžbe preko 5.000 RSD. 🚚" },
+      { q: "Imate li u broju M?", a: "Da, broj M je trenutno dostupan. Želite li da Vam ga rezervišem?" },
+      { q: "Kako da naručim?", a: "Recite mi šta želite — uzeću ime, adresu i broj telefona ovdje u poruci. 🛒" },
+      { q: "Radite li i na Fejsbuku?", a: "Da — isti agent odgovara i na Instagram i na Facebook poruke, sa istim znanjem i tonom." }
+    ]
+  },
+  pricing: {
+    eyebrow: "Cijene",
+    h2: "Počni besplatno. Plaćaš kako inboks raste.",
+    sub: "Bez kartice na startu. Naplata je za sada ručna — izaberi plan i mi te povežemo.",
+    popular: "Najpopularniji",
+    free: "Besplatno",
+    contact: "Po dogovoru",
+    perMonth: "/mj",
+    unitMessages: "poruka / mjesec",
+    unitReplies: "AI odgovora / mjesec",
+    channel: "kanal",
+    channels: "kanala",
+    knowledge: "izvora znanja",
+    handoffOn: "Predaja timu",
+    handoffOff: "Bez predaje",
+    ordersSheet: "Narudžbe u Google tabeli",
+    ordersPanel: "Narudžbe u panelu",
+    notifOn: "Telegram / WhatsApp obavijesti",
+    notifOff: "Email obavijesti",
+    analyticsAdv: "napredna analitika",
+    analyticsBasic: "osnovna analitika",
+    planNames: { Free: "Početni", Basic: "Osnovni", Standard: "Standard", Pro: "Pro", Business: "Biznis", Enterprise: "Korporativni" },
+    support: { Community: "Zajednica", Email: "Email podrška", "Priority email": "Prioritetni email", Priority: "Prioritetna podrška", Dedicated: "Posvećena podrška", "Dedicated + SLA": "Posvećena podrška + SLA" },
+    ctaFree: "Pokreni besplatno",
+    ctaContact: "Kontaktiraj nas",
+    ctaChoose: "Izaberi plan"
+  },
+  faq: {
+    eyebrow: "Česta pitanja",
+    h2: "Sve što te zanima, prije nego što se prijaviš.",
+    items: [
+      { q: "Da li mi treba tehničko znanje?", a: "Ne. Prijaviš se preko Facebook-a, izabereš stranicu i agent je povezan. Bez Meta developer konzole, bez koda, bez terminala." },
+      { q: "Da li izmišlja cijene ili obećanja?", a: "Ne — agent odgovara isključivo iz znanja koje mu daš. Kada nije siguran, kaže da će tim provjeriti i proslijedi razgovor tebi." },
+      { q: "Šta je sa reklamacijama i nezadovoljnim kupcima?", a: "Ključne riječi (reklamacija, problem, agent, čovjek…) odmah ućutkaju bota, označe razgovor i obavijeste te na Telegramu." },
+      { q: "Mogu li ga probati prije nego što priča sa kupcima?", a: "Da — draft režim priprema odgovore bez slanja, a ugrađeni test chat ti dozvoljava da ga prvo lično ispitaš." },
+      { q: "Koje jezike govori?", a: "Srpski, bosanski, hrvatski i engleski, uz persiranje. Odgovara na jeziku na kojem kupac piše." },
+      { q: "Kako se naplaćuje?", a: "Postoji besplatan plan za probu, a zatim plaćeni planovi prema broju poruka. Naplata je za sada ručna — bez kartice na startu." }
+    ]
+  },
+  finalCta: {
+    h2: "Prestani da gubiš kupce u porukama.",
+    sub: "Pusti NibaChat da odgovara i prima narudžbe dok ti vodiš posao. Poveži se za par minuta i gledaj kako radi.",
+    ctaPrimary: "Pokreni besplatno",
+    ctaSecondary: "Zakaži demo"
+  },
+  footer: {
+    tagline: "AI agenti za Instagram i Facebook poruke. Napravljeno za radnje koje prodaju kroz poruke.",
+    product: "Proizvod",
+    legal: "Pravno",
+    languages: "Jezici",
+    langList: "Srpski · Bosanski · English",
+    rights: "Sva prava zadržana.",
+    links: { blog: "Blog", privacy: "Privatnost", terms: "Uslovi korištenja", cookies: "Kolačići", dataDeletion: "Brisanje podataka", gdpr: "GDPR" }
+  },
+  blog: { title: "Blog", subtitle: "AI agenti, prodaja kroz poruke i brži odgovori kupcima.", all: "Svi članci", back: "Nazad na početnu", readMore: "Pročitaj više" }
 };
 
 const DICTS: Record<Locale, Dict> = { sr, bs, en };

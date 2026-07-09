@@ -1,31 +1,23 @@
-"use client";
-
-import { useRouter, usePathname } from "next/navigation";
-import { LOCALES, LANG_COOKIE, type Locale } from "@/lib/i18n";
+import Link from "next/link";
+import { LOCALES, type Locale } from "@/lib/i18n";
 
 const SHORT: Record<Locale, string> = { sr: "SR", bs: "BS", en: "EN" };
 
-/** Persist the chosen locale for a year (module scope — not a component mutation). */
-function persistLocale(loc: Locale): void {
-  document.cookie = `${LANG_COOKIE}=${loc}; path=/; max-age=31536000; samesite=lax`;
-}
-
 /**
- * Segmented locale switcher. Persists the choice in the `niba_lang` cookie and
- * navigates to `?lang=<code>` so the server re-renders in that language and the
- * URL is crawlable/shareable per locale.
+ * Segmented locale switcher — real indexable URLs (`/sr`, `/bs`, `/en`,
+ * `/sr/blog`, …). `segment` is the path AFTER the locale ("" for landing,
+ * "/blog" for the blog index, "/blog/<slug>" for an article). No cookie: the
+ * URL is the source of truth, so every locale is crawlable and shareable.
  */
-export function LanguageSwitcher({ current, tone = "light" }: { current: Locale; tone?: "light" | "dark" }) {
-  const router = useRouter();
-  const pathname = usePathname();
-
-  const pick = (loc: Locale) => {
-    if (loc === current) return;
-    persistLocale(loc);
-    router.push(`${pathname}?lang=${loc}`);
-    router.refresh();
-  };
-
+export function LanguageSwitcher({
+  current,
+  segment = "",
+  tone = "light"
+}: {
+  current: Locale;
+  segment?: string;
+  tone?: "light" | "dark";
+}) {
   const border = tone === "dark" ? "border-white/20" : "border-[color:var(--line)]";
   const idle = tone === "dark" ? "text-white/60 hover:text-white" : "text-[color:var(--muted-2)] hover:text-[color:var(--ink-warm)]";
   const active = tone === "dark" ? "bg-white/15 text-white" : "bg-[color:var(--ink-warm)] text-white";
@@ -33,15 +25,15 @@ export function LanguageSwitcher({ current, tone = "light" }: { current: Locale;
   return (
     <div className={`inline-flex overflow-hidden rounded-full border ${border} text-xs font-semibold`} role="group" aria-label="Jezik / Language">
       {LOCALES.map((loc) => (
-        <button
+        <Link
           key={loc}
-          type="button"
-          onClick={() => pick(loc)}
-          aria-pressed={loc === current}
+          href={`/${loc}${segment}`}
+          hrefLang={loc}
+          aria-current={loc === current ? "true" : undefined}
           className={`px-2.5 py-1 transition ${loc === current ? active : idle}`}
         >
           {SHORT[loc]}
-        </button>
+        </Link>
       ))}
     </div>
   );

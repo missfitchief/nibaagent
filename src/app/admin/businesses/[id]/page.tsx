@@ -281,9 +281,9 @@ export default async function AdminBusinessDetail({
                 <span className="inline-flex cursor-not-allowed items-center gap-2 rounded-xl border border-[var(--card-border)] px-5 py-2.5 text-sm font-semibold opacity-50">
                   ⓕ Poveži Facebook / Instagram
                 </span>
-                <a href="/admin/settings" className="text-sm font-medium text-sky-600 hover:underline">
+                <Link href="/admin/settings" className="text-sm font-medium text-sky-600 hover:underline">
                   Podesi Meta u Podešavanjima aplikacije →
-                </a>
+                </Link>
               </div>
             )}
             {metaCheck && (

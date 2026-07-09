@@ -20,12 +20,15 @@ describe("i18n dictionary (sr/bs/en + fallback)", () => {
     expect(getDict("sr").demo.chips.join(" ")).not.toContain("Kupac odgovoren");
   });
 
-  it("Bosnian overrides ijekavica but falls back to Serbian for un-overridden keys", () => {
+  it("Bosnian is explicit ijekavica, not Serbian ekavica", () => {
     const bs = getDict("bs");
-    expect(bs.hero.caps[1]).toBe("Prima narudžbe"); // bs override
-    expect(bs.pricing.unitMessages).toContain("mjesec"); // bs ijekavica
-    // eyebrow not overridden in bs → falls back to sr value
-    expect(bs.product.eyebrow).toBe(getDict("sr").product.eyebrow);
+    const sr = getDict("sr");
+    expect(bs.nav.pricing).toBe("Cijene"); // bs, vs sr "Cene"
+    expect(sr.nav.pricing).toBe("Cene");
+    expect(bs.hero.caps[1]).toBe("Prima narudžbe");
+    expect(bs.pricing.unitMessages).toContain("mjesec"); // not "mesec"
+    expect(bs.faq.h2).toContain("prije"); // ijekavica, not "pre"
+    expect(bs.live.qa[2].q).toBe("Kako da naručim?"); // not "poručim"
   });
 
   it("isLocale guards", () => {
@@ -37,12 +40,17 @@ describe("i18n dictionary (sr/bs/en + fallback)", () => {
 });
 
 describe("blog", () => {
-  it("Serbian articles exist and are returned for sr/bs", () => {
+  it("Serbian + Bosnian articles exist, share slugs, differ in content", () => {
     expect(BLOG_POSTS_SR.length).toBeGreaterThanOrEqual(5);
     const sr = postsFor("sr");
     const bs = postsFor("bs");
     expect(sr.every((p) => p.lang === "sr")).toBe(true);
-    expect(bs).toEqual(sr); // bs falls back to sr articles
+    expect(bs.every((p) => p.lang === "bs")).toBe(true); // real Bosnian, not sr fallback
+    expect(bs.map((p) => p.slug)).toEqual(sr.map((p) => p.slug)); // same slugs
+    // ijekavica: the Bosnian "chatbot za online prodavnice" title uses "cijena"
+    const bsPost = bs.find((p) => p.slug === "chatbot-za-online-prodavnice")!;
+    expect(bsPost.title).toContain("cijena");
+    expect(bsPost.title).not.toContain("cena");
     expect(sr.some((p) => p.slug === "ai-chatbot-za-instagram-prodaju")).toBe(true);
   });
   it("English locale returns English legacy posts", () => {
