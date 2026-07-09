@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { getLocalizedPost, allBlogParams } from "@/lib/blog";
+import { getLocalizedPost, allBlogParams, localesForSlug } from "@/lib/blog";
 import { NibaLogo } from "@/components/logo";
 import { getDict, HREFLANG, LOCALES, isLocale } from "@/lib/i18n";
 import { LanguageSwitcher } from "@/components/landing/language-switcher";
@@ -18,7 +18,7 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   const post = getLocalizedPost(raw, slug);
   if (!post) return {};
   const languages: Record<string, string> = {};
-  for (const l of LOCALES) languages[HREFLANG[l]] = `${BASE}/${l}/blog/${slug}`;
+  for (const l of localesForSlug(slug)) languages[HREFLANG[l]] = `${BASE}/${l}/blog/${slug}`;
   return {
     title: post.title,
     description: post.description,
@@ -34,6 +34,9 @@ export default async function BlogPostPage({ params }: { params: Promise<{ local
   const post = getLocalizedPost(locale, slug);
   if (!post) notFound();
   const t = getDict(locale);
+  // switcher: locales that have this article go to it; others go to their blog index
+  const have = new Set(localesForSlug(slug));
+  const switchHrefs = Object.fromEntries(LOCALES.map((l) => [l, have.has(l) ? `/${l}/blog/${slug}` : `/${l}/blog`]));
 
   const jsonLd = {
     "@context": "https://schema.org",
@@ -67,7 +70,7 @@ export default async function BlogPostPage({ params }: { params: Promise<{ local
           <NibaLogo markColor="#b8511f" plain />
         </Link>
         <div className="flex items-center gap-3">
-          <LanguageSwitcher current={locale} segment={`/blog/${slug}`} />
+          <LanguageSwitcher current={locale} hrefs={switchHrefs} />
           <Link href={`/${locale}/blog`} className="text-sm text-[color:var(--ember-strong)] hover:underline">
             ← {t.blog.all}
           </Link>

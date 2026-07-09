@@ -1,5 +1,5 @@
 import type { MetadataRoute } from "next";
-import { postsFor } from "@/lib/blog";
+import { postsFor, localesForSlug } from "@/lib/blog";
 import { LOCALES } from "@/lib/i18n";
 
 const BASE = process.env.APP_URL || "https://nibaagent.vercel.app";
@@ -15,10 +15,10 @@ export default function sitemap(): MetadataRoute.Sitemap {
     entries.push({ url: `${BASE}/${l}/blog`, changeFrequency: "weekly", priority: 0.8, alternates: { languages: altBlog } });
   }
 
-  // localized articles
+  // localized articles — alternates only for locales that actually have the slug
   for (const l of LOCALES) {
     for (const p of postsFor(l)) {
-      const alt = Object.fromEntries(LOCALES.map((x) => [x, `${BASE}/${x}/blog/${p.slug}`]));
+      const alt = Object.fromEntries(localesForSlug(p.slug).map((x) => [x, `${BASE}/${x}/blog/${p.slug}`]));
       entries.push({ url: `${BASE}/${l}/blog/${p.slug}`, lastModified: p.date, priority: 0.7, alternates: { languages: alt } });
     }
   }

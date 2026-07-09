@@ -12,10 +12,14 @@ const SHORT: Record<Locale, string> = { sr: "SR", bs: "BS", en: "EN" };
 export function LanguageSwitcher({
   current,
   segment = "",
+  hrefs,
   tone = "light"
 }: {
   current: Locale;
   segment?: string;
+  /** Explicit per-locale target URLs (overrides `segment`). Used on article pages
+   * where a locale may not have that slug, so it points to that locale's index. */
+  hrefs?: Partial<Record<Locale, string>>;
   tone?: "light" | "dark";
 }) {
   const border = tone === "dark" ? "border-white/20" : "border-[color:var(--line)]";
@@ -27,7 +31,7 @@ export function LanguageSwitcher({
       {LOCALES.map((loc) => (
         <Link
           key={loc}
-          href={`/${loc}${segment}`}
+          href={hrefs?.[loc] ?? `/${loc}${segment}`}
           hrefLang={loc}
           aria-current={loc === current ? "true" : undefined}
           className={`px-2.5 py-1 transition ${loc === current ? active : idle}`}

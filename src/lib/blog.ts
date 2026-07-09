@@ -234,13 +234,20 @@ export function postsFor(locale: "sr" | "bs" | "en"): BlogPost[] {
   return SETS[locale] ?? BLOG_POSTS_SR;
 }
 
-/** Localized single post by slug (locale set first, then any set). */
+/** Localized single post by slug — STRICT: only returns a post that exists in
+ * that locale (no cross-language fallback, so we never render English content
+ * under /bs or /sr). Missing → undefined → the route 404s. */
 export function getLocalizedPost(locale: "sr" | "bs" | "en", slug: string): BlogPost | undefined {
-  return SETS[locale]?.find((p) => p.slug === slug) ?? getPost(slug);
+  return SETS[locale]?.find((p) => p.slug === slug);
 }
 
 export function getPost(slug: string): BlogPost | undefined {
   return [...BLOG_POSTS_SR, ...BLOG_POSTS_BS, ...BLOG_POSTS].find((p) => p.slug === slug);
+}
+
+/** Which locales actually have an article at this slug (for hreflang alternates). */
+export function localesForSlug(slug: string): ("sr" | "bs" | "en")[] {
+  return (["sr", "bs", "en"] as const).filter((l) => SETS[l].some((p) => p.slug === slug));
 }
 
 /** All (locale, slug) pairs for static generation. */
