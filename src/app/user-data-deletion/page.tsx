@@ -5,7 +5,7 @@ import { DATA_DELETION } from "@/lib/legal";
 const BASE = process.env.APP_URL || "https://nibaagent.vercel.app";
 
 export const metadata: Metadata = {
-  title: DATA_DELETION.metaTitle,
+  title: { absolute: DATA_DELETION.metaTitle },
   description: DATA_DELETION.description,
   alternates: { canonical: `${BASE}/user-data-deletion` },
   openGraph: { title: DATA_DELETION.metaTitle, description: DATA_DELETION.description, url: `${BASE}/user-data-deletion`, type: "article" }

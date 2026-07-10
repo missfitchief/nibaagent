@@ -5,7 +5,7 @@ import { PRIVACY } from "@/lib/legal";
 const BASE = process.env.APP_URL || "https://nibaagent.vercel.app";
 
 export const metadata: Metadata = {
-  title: PRIVACY.metaTitle,
+  title: { absolute: PRIVACY.metaTitle },
   description: PRIVACY.description,
   alternates: { canonical: `${BASE}/privacy-policy` },
   openGraph: { title: PRIVACY.metaTitle, description: PRIVACY.description, url: `${BASE}/privacy-policy`, type: "article" }
