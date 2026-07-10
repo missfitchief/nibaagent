@@ -297,10 +297,10 @@ export default async function LandingPage({ params }: { params: Promise<{ locale
           <FooterCol
             title={t.footer.legal}
             links={[
-              { href: "/legal/privacy", label: t.footer.links.privacy },
-              { href: "/legal/terms", label: t.footer.links.terms },
+              { href: "/privacy-policy", label: t.footer.links.privacy },
+              { href: "/terms-of-service", label: t.footer.links.terms },
+              { href: "/user-data-deletion", label: t.footer.links.dataDeletion },
               { href: "/legal/cookies", label: t.footer.links.cookies },
-              { href: "/legal/data-deletion", label: t.footer.links.dataDeletion },
               { href: "/legal/gdpr", label: t.footer.links.gdpr }
             ]}
           />

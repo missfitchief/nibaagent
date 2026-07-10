@@ -25,7 +25,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
 
   entries.push({ url: `${BASE}/signup`, priority: 0.9 });
   entries.push({ url: `${BASE}/login`, priority: 0.5 });
-  for (const s of ["privacy", "terms", "cookies", "data-deletion", "gdpr"]) entries.push({ url: `${BASE}/legal/${s}`, priority: 0.3 });
+  for (const s of ["privacy-policy", "terms-of-service", "user-data-deletion"]) entries.push({ url: `${BASE}/${s}`, changeFrequency: "yearly", priority: 0.3 });
+  for (const s of ["privacy", "terms", "cookies", "data-deletion", "gdpr"]) entries.push({ url: `${BASE}/legal/${s}`, priority: 0.2 });
 
   return entries;
 }

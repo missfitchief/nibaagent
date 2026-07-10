@@ -91,7 +91,14 @@ export function MetaCheckPanel({ check, businessId }: { check: MetaConfigCheck; 
         <h3 className="text-sm font-semibold">URL-ovi za Meta aplikaciju</h3>
         <CopyRow label="OAuth callback URL" value={check.callbackUrl} />
         <CopyRow label="Webhook URL" value={check.webhookUrl} />
-        <CopyRow label="URL za brisanje podataka" value={check.dataDeletionUrl} />
+        <CopyRow label="Data deletion callback URL" value={check.dataDeletionUrl} />
+      </div>
+
+      <div className="mt-4 space-y-2">
+        <h3 className="text-sm font-semibold">Pravni URL-ovi (za Meta App Dashboard)</h3>
+        <CopyRow label="Privacy Policy URL" value={`${check.appUrl}/privacy-policy`} />
+        <CopyRow label="Terms of Service URL" value={`${check.appUrl}/terms-of-service`} />
+        <CopyRow label="User Data Deletion URL" value={`${check.appUrl}/user-data-deletion`} />
       </div>
 
       <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
