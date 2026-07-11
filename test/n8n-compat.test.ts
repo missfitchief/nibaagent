@@ -59,12 +59,12 @@ describe("n8n runtime data sync", () => {
 
   it("writes one catalog_snapshots row per product with core fields", async () => {
     const { business } = await seedBusiness(db, "Shop");
-    await addProduct(business.id, "Red Dress", { price: "49.90", currency: "BAM", stockStatus: "in_stock", colors: ["red"], sizes: ["M", "L"] });
+    await addProduct(business.id, "Red Dress", { price: "49.90", currency: "BAM", stockStatus: "available", colors: ["red"], sizes: ["M", "L"] });
     await syncCatalogSnapshotForBusiness(business.id);
     const [snap] = await db.select().from(catalogSnapshots).where(eq(catalogSnapshots.businessId, business.id));
     expect(snap.title).toBe("Red Dress");
     expect(snap.price).toBe("49.90");
-    expect(snap.stockStatus).toBe("in_stock");
+    expect(snap.stockStatus).toBe("available");
     expect(snap.colors).toEqual(["red"]);
     expect(snap.sizes).toEqual(["M", "L"]);
     expect(snap.clientId).toBe(business.id);
