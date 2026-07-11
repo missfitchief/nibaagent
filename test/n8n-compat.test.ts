@@ -17,6 +17,7 @@ import {
   syncTenantConfigForBusiness
 } from "../src/lib/n8n-sync";
 import { runEngine, runEngineForInbound } from "../src/lib/engine";
+import { clientIdFor } from "../src/lib/tenant";
 
 let db: TestDb;
 beforeEach(async () => {
@@ -35,7 +36,7 @@ describe("n8n runtime data sync", () => {
     await syncTenantConfigForBusiness(business.id);
     const rows = await db.select().from(tenantConfigs).where(eq(tenantConfigs.businessId, business.id));
     expect(rows).toHaveLength(1);
-    expect(rows[0].clientId).toBe(business.id);
+    expect(rows[0].clientId).toBe(clientIdFor(business)); // n8n tenant id (slug of name), not the UUID
   });
 
   it("projects runtime bot/business settings into tenant_configs", async () => {
@@ -67,7 +68,7 @@ describe("n8n runtime data sync", () => {
     expect(snap.stockStatus).toBe("available");
     expect(snap.colors).toEqual(["red"]);
     expect(snap.sizes).toEqual(["M", "L"]);
-    expect(snap.clientId).toBe(business.id);
+    expect(snap.clientId).toBe(clientIdFor(business)); // n8n tenant id, not the UUID
   });
 
   it("prunes catalog snapshots when a product is deleted", async () => {

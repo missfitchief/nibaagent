@@ -343,7 +343,8 @@ export default async function AdminBusinessDetail({
               selectedModel: biz.selectedModel,
               dailyMessageLimit: biz.dailyMessageLimit,
               monthlyMessageLimit: biz.monthlyMessageLimit,
-              tone: biz.tone
+              tone: biz.tone,
+              clientId: biz.clientId
             }}
           />
           <BotSettingsForm
@@ -568,7 +569,8 @@ export default async function AdminBusinessDetail({
             selectedModel: biz.selectedModel,
             dailyMessageLimit: biz.dailyMessageLimit,
             monthlyMessageLimit: biz.monthlyMessageLimit,
-            tone: biz.tone
+            tone: biz.tone,
+            clientId: biz.clientId
           }}
         />
         <div className="space-y-4">

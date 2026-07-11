@@ -61,6 +61,8 @@ export const businesses = pgTable(
       .references(() => users.id),
     name: text("name").notNull(),
     slug: text("slug").notNull().unique(),
+    /** Stable n8n tenant/client id (e.g. "starlight"). Written to meta_connections.client_id + n8n tables. */
+    clientId: text("client_id").notNull().default(""),
     plan: text("plan", { enum: PLANS }).notNull().default("free"),
     status: text("status", { enum: ["active", "inactive"] }).notNull().default("active"),
     aiEnabled: boolean("ai_enabled").notNull().default(true),

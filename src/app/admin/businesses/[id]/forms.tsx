@@ -40,6 +40,7 @@ export function AdminBusinessForm({
     dailyMessageLimit: number;
     monthlyMessageLimit: number;
     tone: string;
+    clientId: string;
   };
 }) {
   const [state, formAction, pending] = useActionState<ActionState, FormData>(adminUpdateBusinessAction, {});
@@ -75,6 +76,13 @@ export function AdminBusinessForm({
           <div>
             <Label htmlFor="tone">Tone</Label>
             <Select name="tone" defaultValue={defaults.tone} options={["professional", "friendly", "luxury", "casual", "short", "detailed"]} />
+          </div>
+          <div className="sm:col-span-2">
+            <Label htmlFor="clientId">n8n Client ID (tenant id)</Label>
+            <Input name="clientId" defaultValue={defaults.clientId} placeholder="e.g. starlight" autoComplete="off" />
+            <p className="mt-1 text-xs text-[var(--ink-soft)]">
+              Stable tenant id written to meta_connections.client_id + n8n tables. n8n loads this tenant by this value. Lowercase/dashes only.
+            </p>
           </div>
           <div className="flex items-end gap-2 pb-1">
             <input

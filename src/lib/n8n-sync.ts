@@ -12,6 +12,7 @@ import {
   tenantConfigs
 } from "./db/schema";
 import { decryptToken } from "./crypto";
+import { clientIdFor } from "./tenant";
 import { logEvent } from "./meta";
 
 /**
@@ -35,9 +36,10 @@ export async function syncTenantConfigForBusiness(businessId: string): Promise<v
   const [settings] = await d.select().from(botSettings).where(eq(botSettings.businessId, businessId)).limit(1);
   const conns = await d.select().from(metaConnections).where(eq(metaConnections.businessId, businessId));
   const metaConnected = conns.some((c) => c.status === "active" || c.status === "connected" || c.status === "partial");
+  const clientId = clientIdFor(biz); // stable n8n tenant id (e.g. "starlight")
 
   const row = {
-    clientId: businessId,
+    clientId,
     businessId,
     businessName: biz.name,
     plan: biz.plan,
@@ -65,10 +67,12 @@ export async function syncTenantConfigForBusiness(businessId: string): Promise<v
 /** Product catalog → catalog_snapshots (one row per product; prunes removed ones). */
 export async function syncCatalogSnapshotForBusiness(businessId: string): Promise<void> {
   const d = db();
+  const [biz] = await d.select().from(businesses).where(eq(businesses.id, businessId)).limit(1);
+  const clientId = biz ? clientIdFor(biz) : businessId;
   const prods = await d.select().from(products).where(eq(products.businessId, businessId));
   for (const p of prods) {
     const row = {
-      clientId: businessId,
+      clientId,
       businessId,
       productId: p.id,
       title: p.title,
@@ -111,6 +115,8 @@ interface Memory {
 /** Knowledge (FAQ / website / policy / old-chats / instructions / tone) → learning_memories. */
 export async function syncLearningMemoriesForBusiness(businessId: string): Promise<void> {
   const d = db();
+  const [biz] = await d.select().from(businesses).where(eq(businesses.id, businessId)).limit(1);
+  const clientId = biz ? clientIdFor(biz) : businessId;
   const [settings] = await d.select().from(botSettings).where(eq(botSettings.businessId, businessId)).limit(1);
   const sources = await d.select().from(knowledgeSources).where(eq(knowledgeSources.businessId, businessId));
 
@@ -135,7 +141,7 @@ export async function syncLearningMemoriesForBusiness(businessId: string): Promi
   }
 
   for (const m of mems) {
-    const row = { clientId: businessId, businessId, ...m, updatedAt: new Date() };
+    const row = { clientId, businessId, ...m, updatedAt: new Date() };
     await d
       .insert(learningMemories)
       .values(row)

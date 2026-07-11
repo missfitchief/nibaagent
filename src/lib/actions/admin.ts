@@ -10,6 +10,7 @@ import { requireAdmin } from "../auth/guards";
 import { hashPassword } from "../auth/password";
 import { encryptToken, uuid } from "../crypto";
 import { sanitizeModel, APP_DEFAULT_MODEL } from "../models";
+import { clientIdFor } from "../tenant";
 import { safeSyncAllN8n } from "../n8n-sync";
 import type { ActionState } from "./business";
 
@@ -53,7 +54,7 @@ export async function adminCreateBusinessAction(_prev: ActionState, formData: Fo
   }
   const [biz] = await db()
     .insert(businesses)
-    .values({ ownerUserId: owner.id, name: parsed.data.name.trim(), slug, defaultLanguage: parsed.data.defaultLanguage })
+    .values({ ownerUserId: owner.id, name: parsed.data.name.trim(), slug, clientId: slugify(parsed.data.name), defaultLanguage: parsed.data.defaultLanguage })
     .returning();
   await db().insert(botSettings).values({ businessId: biz.id, tone: "friendly" });
   await db().insert(subscriptions).values({ businessId: biz.id, plan: "free", status: "trial" });
@@ -91,18 +92,22 @@ const AdminBusinessUpdate = z.object({
   selectedModel: z.string().max(120).default("gpt-4o-mini"),
   dailyMessageLimit: z.coerce.number().int().min(0).max(1_000_000),
   monthlyMessageLimit: z.coerce.number().int().min(0).max(10_000_000),
-  tone: z.string().max(40)
+  tone: z.string().max(40),
+  /** n8n tenant id (e.g. "starlight"). Blank = leave as-is. */
+  clientId: z.string().max(60).default("")
 });
 
 export async function adminUpdateBusinessAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const admin = await requireAdmin();
   const parsed = AdminBusinessUpdate.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: "Invalid values." };
-  const { businessId, aiProvider, selectedModel, ...rest } = parsed.data;
+  const { businessId, aiProvider, selectedModel, clientId, ...rest } = parsed.data;
   const model = sanitizeModel(selectedModel) || APP_DEFAULT_MODEL[aiProvider];
+  // Normalize the n8n client id; blank leaves the existing value untouched.
+  const normalizedClientId = slugify(clientId);
   await db()
     .update(businesses)
-    .set({ ...rest, selectedModel: model, aiEnabled: rest.aiMode !== "paused", updatedAt: new Date() })
+    .set({ ...rest, selectedModel: model, aiEnabled: rest.aiMode !== "paused", ...(normalizedClientId ? { clientId: normalizedClientId } : {}), updatedAt: new Date() })
     .where(eq(businesses.id, businessId));
   // Provider lives on bot_settings — keep it in sync (row exists for every business).
   await db().update(botSettings).set({ aiProvider, updatedAt: new Date() }).where(eq(botSettings.businessId, businessId));
@@ -130,35 +135,43 @@ export async function adminManualConnectionAction(_prev: ActionState, formData: 
   // n8n treats status='active' as connected; it reads the PLAINTEXT token columns.
   const status = data.pageAccessToken ? "active" : "partial";
   const [biz] = await db().select().from(businesses).where(eq(businesses.id, data.businessId)).limit(1);
+  if (!biz) return { error: "Business not found." };
+  const clientId = clientIdFor(biz); // stable n8n tenant id, e.g. "starlight"
   const existing = await db().select().from(metaConnections).where(eq(metaConnections.pageId, data.pageId)).limit(1);
   const values = {
     businessId: data.businessId,
-    clientId: data.businessId,
+    clientId, // n8n tenant id (not the UUID)
     pageId: data.pageId,
     pageName: data.pageName,
     instagramBusinessAccountId: data.instagramBusinessAccountId,
-    businessName: biz?.name ?? "",
-    plan: biz?.plan ?? "free",
+    businessName: biz.name,
+    plan: biz.plan,
     status: status as "active" | "partial",
     connectionType: "manual" as const,
     updatedAt: new Date(),
     ...(data.pageAccessToken ? { encryptedPageAccessToken: encryptToken(data.pageAccessToken), pageAccessToken: data.pageAccessToken } : {}),
     ...(data.instagramAccessToken ? { encryptedInstagramAccessToken: encryptToken(data.instagramAccessToken), instagramAccessToken: data.instagramAccessToken } : {})
   };
-  if (existing[0]) {
-    if (existing[0].businessId !== data.businessId) return { error: "This Page ID is already connected to another business." };
-    await db().update(metaConnections).set(values).where(eq(metaConnections.id, existing[0].id));
-  } else {
-    await db().insert(metaConnections).values(values);
+  // Fail loud: surface the real DB error instead of a false success.
+  try {
+    if (existing[0]) {
+      if (existing[0].businessId !== data.businessId) return { error: "This Page ID is already connected to another business." };
+      await db().update(metaConnections).set(values).where(eq(metaConnections.id, existing[0].id));
+    } else {
+      await db().insert(metaConnections).values(values);
+    }
+  } catch (err) {
+    await db().insert(eventLogs).values({ businessId: data.businessId, level: "error", area: "meta_oauth", message: `Manual connection DB write FAILED for page ${data.pageId}: ${(err as Error).message}`, metadata: { by: admin.email } });
+    return { error: `Database write failed: ${(err as Error).message}` };
   }
   await safeSyncAllN8n(data.businessId);
-  await audit(admin.userId, "connection.manual", data.businessId, { pageId: data.pageId, hasToken: Boolean(data.pageAccessToken) });
+  await audit(admin.userId, "connection.manual", data.businessId, { pageId: data.pageId, clientId, hasToken: Boolean(data.pageAccessToken) });
   await db().insert(eventLogs).values({
     businessId: data.businessId,
     level: "info",
     area: "meta_oauth",
-    message: `Manual connection saved for page ${data.pageId} (${status})`,
-    metadata: { by: admin.email }
+    message: `Manual connection saved for page ${data.pageId} (client_id=${clientId}, ${status})`,
+    metadata: { by: admin.email, clientId }
   });
   revalidatePath(`/admin/businesses/${data.businessId}`);
   return { ok: true };

@@ -7,6 +7,7 @@ import { encryptToken } from "@/lib/crypto";
 import { env } from "@/lib/env";
 import { getSession } from "@/lib/auth/session";
 import { accessForUser } from "@/lib/auth/guards";
+import { clientIdFor } from "@/lib/tenant";
 import { exchangeCodeForToken, fetchGrantedPages, logEvent, resolvedRedirectUri, subscribePageToApp, toLongLivedToken } from "@/lib/meta";
 import { safeSyncAllN8n, syncTenantConfigForBusiness } from "@/lib/n8n-sync";
 
@@ -14,24 +15,21 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * OAuth callback. Persists each granted Page to the PRODUCTION meta_connections
- * table so the shared n8n workflow can read it:
- *   code -> user token -> LONG-LIVED token -> granted pages (task-access fallback)
- *   -> parameterized upsert ON CONFLICT (page_id):
- *        page_access_token   (PLAINTEXT, n8n reads this)
- *        instagram_access_token (PLAINTEXT)
- *        encrypted_* mirrors (app keeps tokens encrypted at rest too)
- *        status='active'      (n8n treats active = connected)
- *        client_id/business_id/business_name/plan loaded SERVER-SIDE from the DB
- *   -> subscribe page to app  -> project runtime data into the n8n tables.
- *
- * Tenant is resolved ONLY from the signed state + the caller's session — never
- * from a page name or request param, and a Page owned by another tenant is never
- * reassigned. Logs are sanitized: no tokens, secrets, code or connection strings.
+ * Meta OAuth callback — persists each granted Page to the PRODUCTION
+ * meta_connections table (via process.env.DATABASE_URL). n8n reads by
+ * client_id (the stable tenant id, e.g. "starlight"); business_id stays the
+ * app's internal UUID. Success is shown ONLY after the DB upsert succeeds; a DB
+ * failure surfaces the real error in the UI. Every stage is logged; tokens are
+ * NEVER logged.
  */
 export async function GET(request: NextRequest) {
   const redirectTo = (path: string) => NextResponse.redirect(new URL(path, request.url));
-  const fail = (msg: string) => redirectTo(`/app/connect?error=${encodeURIComponent(msg.slice(0, 180))}`);
+  const fail = (msg: string) => redirectTo(`/app/connect?error=${encodeURIComponent(msg.slice(0, 200))}`);
+  // Per-stage, sanitized server log helper (never receives a token).
+  const slog = (level: "info" | "warn" | "error", msg: string, meta: Record<string, unknown> = {}, biz: string | null = null) =>
+    logEvent(biz, level, "meta_oauth", msg, meta);
+
+  await slog("info", "Meta OAuth callback started"); // req #6: callback route started
 
   const code = request.nextUrl.searchParams.get("code");
   const state = request.nextUrl.searchParams.get("state") ?? "";
@@ -39,7 +37,7 @@ export async function GET(request: NextRequest) {
   if (metaError) return fail(metaError);
   if (!code || !state) return fail("Facebook did not return a login code.");
 
-  // 1. Verify the signed state → tenant id (never trust an unsigned param).
+  // 1. Verify the signed state → internal business UUID (never trust an unsigned param).
   const e = env();
   let businessId = "";
   try {
@@ -51,25 +49,34 @@ export async function GET(request: NextRequest) {
   }
   if (!businessId) return fail("Invalid connect state.");
 
-  // 2. The caller must be signed in AND have access to this exact tenant. This
-  //    also loads the tenant server-side (name/plan) — rejecting unknown tenants.
+  // 2. Caller must be signed in AND have access to this tenant (loads name/plan server-side).
   const session = await getSession();
   if (!session) return fail("Please sign in again, then reconnect Facebook.");
   const access = await accessForUser(session, businessId);
   if (!access) {
-    await logEvent(businessId, "warn", "meta_oauth", "callback rejected: caller has no access to tenant");
+    await slog("warn", "callback rejected: caller has no access to tenant", {}, businessId);
     return fail("You don't have access to this account. Sign in with the right account and try again.");
   }
   const business = access.business;
+  const clientId = clientIdFor(business); // stable n8n tenant id, e.g. "starlight"
+  await slog("info", `tenant resolved: client_id=${clientId} (business=${business.name})`, { clientId }, businessId); // req #6: tenant id
 
   try {
-    // 3. Token exchange (short → long-lived) → granted pages.
-    const shortToken = await exchangeCodeForToken(code, await resolvedRedirectUri());
-    const longToken = await toLongLivedToken(shortToken);
+    // 3. Token exchange (short → long-lived) → granted pages. req #6: exchange success/failure.
+    let longToken: string;
+    try {
+      const shortToken = await exchangeCodeForToken(code, await resolvedRedirectUri());
+      longToken = await toLongLivedToken(shortToken);
+      await slog("info", "Meta access token exchange succeeded", {}, businessId);
+    } catch (err) {
+      await slog("error", `Meta access token exchange FAILED: ${(err as Error).message}`, {}, businessId);
+      return fail(`Meta token exchange failed: ${(err as Error).message}`);
+    }
+
     const pages = await fetchGrantedPages(longToken);
-    await logEvent(businessId, "info", "meta_oauth", `token exchange ok; ${pages.length} page(s) granted`);
+    await slog("info", `/me/accounts returned ${pages.length} page(s)`, { pageCount: pages.length }, businessId); // req #6: page count
     if (!pages.length) {
-      await logEvent(businessId, "warn", "meta_oauth", "OAuth completed but no pages were granted");
+      await slog("warn", "OAuth completed but no pages were granted", {}, businessId);
       return fail("No Facebook Page was granted. In the Facebook popup, make sure you SELECT your page (and Instagram account).");
     }
 
@@ -77,23 +84,25 @@ export async function GET(request: NextRequest) {
     let webhookFailed = false;
     for (const page of pages) {
       const igId = page.instagram_business_account?.id ?? "";
+      await slog("info", `selected page_id=${page.id} page_name=${page.name ?? ""}`, { pageId: page.id, pageName: page.name ?? "" }, businessId); // req #6
+      await slog("info", `instagram_business_account_id=${igId || "(none)"}`, { instagramBusinessAccountId: igId }, businessId); // req #6
 
       // Ownership guard: never reassign a Page already connected to another tenant.
       const existing = await db().select().from(metaConnections).where(eq(metaConnections.pageId, page.id)).limit(1);
       if (existing[0] && existing[0].businessId !== businessId) {
-        await logEvent(businessId, "warn", "meta_oauth", `page ${page.id} already belongs to another account — skipped`);
+        await slog("warn", `page ${page.id} already belongs to another account — skipped`, {}, businessId);
         continue;
       }
 
       const encrypted = encryptToken(page.access_token);
-      // Parameterized upsert (drizzle → INSERT ... ON CONFLICT (page_id) DO UPDATE).
+      // Exact columns (req #10). client_id = tenant id; business_id = internal UUID.
       const shared = {
-        businessId,
-        clientId: businessId,
+        businessId, // internal UUID (FK)
+        clientId, // n8n tenant id, e.g. "starlight"
         pageName: page.name ?? "",
         encryptedPageAccessToken: encrypted,
         encryptedInstagramAccessToken: encrypted,
-        pageAccessToken: page.access_token,
+        pageAccessToken: page.access_token, // PLAINTEXT for n8n
         instagramAccessToken: igId ? page.access_token : "",
         instagramBusinessAccountId: igId,
         businessName: business.name,
@@ -102,34 +111,40 @@ export async function GET(request: NextRequest) {
         connectionType: "oauth" as const,
         updatedAt: new Date()
       };
-      await db()
-        .insert(metaConnections)
-        .values({ pageId: page.id, connectedAt: new Date(), ...shared })
-        .onConflictDoUpdate({ target: metaConnections.pageId, set: shared });
-      await logEvent(businessId, "info", "meta_oauth", `stored connection for page ${page.id}${igId ? " (+IG)" : " (FB only)"}`);
+
+      // req #4/#5/#6: the DB write is the gate. Failure = real error in UI, no success.
+      try {
+        await db()
+          .insert(metaConnections)
+          .values({ pageId: page.id, connectedAt: new Date(), ...shared })
+          .onConflictDoUpdate({ target: metaConnections.pageId, set: shared });
+        await slog("info", `meta_connections upsert OK (page ${page.id}, client_id=${clientId})`, { pageId: page.id, clientId }, businessId);
+      } catch (err) {
+        await slog("error", `meta_connections upsert FAILED (page ${page.id}): ${(err as Error).message}`, { pageId: page.id }, businessId);
+        return fail(`Database write failed: ${(err as Error).message}`);
+      }
       connectedAny = true;
 
-      // 4. Subscribe the page to the app. On failure KEEP the row (it's stored),
-      //    log a sanitized error and surface a warning — do not discard the token.
+      // 4. Subscribe the page to the app. On failure KEEP the row + warn (don't discard the token).
       try {
         await subscribePageToApp(page.id, page.access_token);
-        await logEvent(businessId, "info", "webhook_subscribe", `page ${page.id} subscribed${igId ? ", IG " + igId : ", no IG"}`);
+        await slog("info", `page ${page.id} subscribed to app`, {}, businessId);
       } catch (err) {
         webhookFailed = true;
-        await logEvent(businessId, "error", "webhook_subscribe", `subscribed_apps failed for ${page.id}: ${(err as Error).message}`);
+        await slog("error", `subscribed_apps failed for ${page.id}: ${(err as Error).message}`, {}, businessId);
       }
     }
 
     if (!connectedAny) return fail("That page is already connected to a different account.");
 
-    // 5. Project this tenant's runtime data into the n8n tables.
+    // 5. Project this tenant's runtime data into the n8n tables (keyed by the same client_id).
     await syncTenantConfigForBusiness(businessId);
     await safeSyncAllN8n(businessId);
 
     return redirectTo(webhookFailed ? "/app/connect?connected=1&warning=webhook_subscription_failed" : "/app/connect?connected=1");
   } catch (err) {
     const msg = (err as Error).message ?? "unknown error";
-    await logEvent(businessId, "error", "meta_oauth", `OAuth flow failed: ${msg}`);
+    await slog("error", `OAuth flow failed: ${msg}`, {}, businessId);
     return fail(msg);
   }
 }

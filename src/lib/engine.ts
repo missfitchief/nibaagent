@@ -493,6 +493,9 @@ export async function resolveTenantByClientId(clientId: string): Promise<string 
   }
   const [byClient] = await d.select({ businessId: metaConnections.businessId }).from(metaConnections).where(eq(metaConnections.clientId, id)).limit(1);
   if (byClient) return byClient.businessId;
+  // Also match the business's own client_id (works even before a connection exists).
+  const [byBizClient] = await d.select({ id: businesses.id }).from(businesses).where(eq(businesses.clientId, id)).limit(1);
+  if (byBizClient) return byBizClient.id;
   const [byPage] = await d.select({ businessId: metaConnections.businessId }).from(metaConnections).where(eq(metaConnections.pageId, id)).limit(1);
   return byPage?.businessId ?? null;
 }
