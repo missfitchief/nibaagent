@@ -88,8 +88,8 @@ export async function importProductsAction(_prev: ImportState, formData: FormDat
   await db().insert(eventLogs).values({
     businessId,
     level: "info",
-    area: "admin",
-    message: `Product import: ${outcome.created} created, ${outcome.updated} updated${website ? `; website: ${website.created + website.updated} pages` : ""}`,
+    area: "product_import",
+    message: `Uvoz proizvoda: ${outcome.created} novih, ${outcome.updated} ažurirano${website ? `; sajt: ${website.created + website.updated} strana` : ""}`,
     metadata: { created: outcome.created, updated: outcome.updated }
   });
   await safeSyncCatalog(businessId);

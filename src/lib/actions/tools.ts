@@ -6,7 +6,7 @@ import { z } from "zod";
 import { db } from "../db/client";
 import { botSettings, conversations, messages } from "../db/schema";
 import { requireAdmin, requireBusiness } from "../auth/guards";
-import { runEngine, type EngineResult } from "../engine";
+import { diagnoseImageRecognition, runEngine, type EngineResult, type ImageDiagnosis } from "../engine";
 import { backfillMetaPlaintextTokens, syncAllN8nRuntimeDataForBusiness } from "../n8n-sync";
 import { safeSyncLearningMemories } from "../n8n-sync";
 import { sendTelegram } from "../notify";
@@ -55,6 +55,31 @@ export async function syncN8nRuntimeAction(_prev: { ok?: boolean; error?: string
     return { ok: true };
   } catch (err) {
     await logEvent(business.id, "error", "n8n_sync", `manual sync failed: ${(err as Error).message}`);
+    return { error: (err as Error).message };
+  }
+}
+
+export interface ImageTestState {
+  result?: ImageDiagnosis;
+  error?: string;
+}
+
+const ImageTestInput = z.object({
+  businessId: z.string().uuid(),
+  imageUrl: z.string().url().max(2000),
+  message: z.string().max(1000).default("")
+});
+
+/** Admin "Test image recognition": full per-stage diagnosis for a tenant + image URL. */
+export async function testImageRecognitionAction(_prev: ImageTestState, formData: FormData): Promise<ImageTestState> {
+  const parsed = ImageTestInput.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return { error: "Unesite ispravan URL slike (https://…)." };
+  const { business } = await requireBusiness(parsed.data.businessId); // tenant authz chokepoint
+  try {
+    const result = await diagnoseImageRecognition(business.id, parsed.data.imageUrl, parsed.data.message);
+    return { result };
+  } catch (err) {
+    await logEvent(business.id, "error", "ai_reply", `Test prepoznavanja slike nije uspeo: ${(err as Error).message}`);
     return { error: (err as Error).message };
   }
 }

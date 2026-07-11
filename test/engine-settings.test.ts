@@ -94,7 +94,7 @@ describe("engine honors per-business settings", () => {
     // No AI key configured → engine stops at "no_ai" (key missing) rather than "unknown",
     // which proves the product provided grounding.
     expect(r.intent).toBe("no_ai");
-    expect(r.note ?? "").toMatch(/key/i);
+    expect(r.note ?? "").toMatch(/ključ|key/i); // "Nema … ključa …" (Serbian note)
   });
 
   it("custom / future model name is stored and surfaced (no allow-list)", async () => {

@@ -18,18 +18,38 @@ export const PLATFORM_KEYS = {
   META_APP_ID: { secret: false, env: "META_APP_ID" },
   META_MODE: { secret: false, env: "META_MODE" },
   META_REQUIRE_SIGNATURE: { secret: false, env: "META_REQUIRE_SIGNATURE" },
+  DEFAULT_AI_PROVIDER: { secret: false, env: "" },
   DEFAULT_OPENAI_MODEL: { secret: false, env: "" },
   DEFAULT_VISION_MODEL: { secret: false, env: "OPENAI_VISION_MODEL" },
   DEFAULT_ANTHROPIC_MODEL: { secret: false, env: "" },
+  // platform_key_only | business_key_allowed | business_key_required
+  AI_USAGE_MODE: { secret: false, env: "AI_USAGE_MODE" },
   N8N_WEBHOOK_URL: { secret: false, env: "N8N_WEBHOOK_URL" },
+  // email verification / transactional email
+  EMAIL_MODE: { secret: false, env: "EMAIL_MODE" }, // dev | resend | smtp
+  EMAIL_FROM: { secret: false, env: "EMAIL_FROM" },
+  SMTP_HOST: { secret: false, env: "SMTP_HOST" },
+  SMTP_PORT: { secret: false, env: "SMTP_PORT" },
+  SMTP_USER: { secret: false, env: "SMTP_USER" },
   // secret (masked only)
   META_APP_SECRET: { secret: true, env: "META_APP_SECRET" },
   META_VERIFY_TOKEN: { secret: true, env: "META_VERIFY_TOKEN" },
   OPENAI_API_KEY: { secret: true, env: "OPENAI_API_KEY" },
   ANTHROPIC_API_KEY: { secret: true, env: "ANTHROPIC_API_KEY" },
   TELEGRAM_BOT_TOKEN: { secret: true, env: "TELEGRAM_BOT_TOKEN" },
-  TELEGRAM_CHAT_ID: { secret: true, env: "" }
+  TELEGRAM_CHAT_ID: { secret: true, env: "" },
+  RESEND_API_KEY: { secret: true, env: "RESEND_API_KEY" },
+  SMTP_PASSWORD: { secret: true, env: "SMTP_PASSWORD" }
 } as const;
+
+/** How businesses may supply AI keys. Read via resolveUsageMode(). */
+export type AiUsageMode = "platform_key_only" | "business_key_allowed" | "business_key_required";
+export const AI_USAGE_MODES: AiUsageMode[] = ["platform_key_only", "business_key_allowed", "business_key_required"];
+
+export async function resolveUsageMode(): Promise<AiUsageMode> {
+  const raw = (await resolvePlatform("AI_USAGE_MODE")).value;
+  return (AI_USAGE_MODES as string[]).includes(raw) ? (raw as AiUsageMode) : "business_key_allowed";
+}
 
 export type PlatformKey = keyof typeof PLATFORM_KEYS;
 

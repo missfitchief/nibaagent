@@ -166,15 +166,79 @@ export function PlatformSettingsForm({
       {/* ---- AI ---- */}
       <Card>
         <h2 className="mb-1 font-semibold">AI providers &amp; default models</h2>
-        <p className="mb-3 text-xs text-[var(--ink-soft)]">Platform fallback keys &amp; default model names. A business can override its own key and model.</p>
+        <p className="mb-3 text-xs text-[var(--ink-soft)]">
+          Platform fallback keys &amp; default models. <strong>Platformski API ključ — trošak ide preko platforme.</strong> A business can bring
+          its own key (trošak ide direktno preko naloga tog biznisa) depending on the usage mode below.
+        </p>
         <div className="space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="AI_USAGE_MODE">API key usage mode</Label>
+              <select
+                id="AI_USAGE_MODE"
+                name="AI_USAGE_MODE"
+                defaultValue={F("AI_USAGE_MODE").display || "business_key_allowed"}
+                className="w-full rounded-xl border border-[var(--card-border)] bg-white/80 px-3.5 py-2.5 text-sm outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-100"
+              >
+                <option value="platform_key_only">platform_key_only — svi koriste platformski ključ</option>
+                <option value="business_key_allowed">business_key_allowed — biznis ključ ako postoji, inače platformski</option>
+                <option value="business_key_required">business_key_required — svaki biznis mora imati svoj ključ</option>
+              </select>
+            </div>
+            <div>
+              <Label htmlFor="DEFAULT_AI_PROVIDER">Default provider</Label>
+              <select
+                id="DEFAULT_AI_PROVIDER"
+                name="DEFAULT_AI_PROVIDER"
+                defaultValue={F("DEFAULT_AI_PROVIDER").display || "openai"}
+                className="w-full rounded-xl border border-[var(--card-border)] bg-white/80 px-3.5 py-2.5 text-sm outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-100"
+              >
+                <option value="openai">openai</option>
+                <option value="anthropic">anthropic</option>
+              </select>
+            </div>
+          </div>
           <SecretField f={F("OPENAI_API_KEY")} />
           <div className="grid gap-3 sm:grid-cols-2">
             <TextField f={F("DEFAULT_OPENAI_MODEL")} placeholder="gpt-4o-mini" />
-            <TextField f={F("DEFAULT_VISION_MODEL")} placeholder="gpt-4o-mini" />
+            <TextField f={F("DEFAULT_VISION_MODEL")} placeholder="gpt-4o-mini (vision-capable)" />
           </div>
           <SecretField f={F("ANTHROPIC_API_KEY")} />
           <TextField f={F("DEFAULT_ANTHROPIC_MODEL")} placeholder="claude-3-5-haiku-latest" />
+        </div>
+      </Card>
+
+      {/* ---- Email (verification / transactional) ---- */}
+      <Card>
+        <h2 className="mb-1 font-semibold">Email (verifikacija naloga)</h2>
+        <p className="mb-3 text-xs text-[var(--ink-soft)]">
+          Šalje verifikacioni email pri registraciji. <strong>dev</strong> = ne šalje pravi email (link se upisuje u logove) —
+          jasno je označeno da slanje nije konfigurisano. <strong>resend</strong> koristi Resend API; <strong>smtp</strong> koristi SMTP nalog.
+        </p>
+        <div className="space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="EMAIL_MODE">Email mode</Label>
+              <select
+                id="EMAIL_MODE"
+                name="EMAIL_MODE"
+                defaultValue={F("EMAIL_MODE").display || "dev"}
+                className="w-full rounded-xl border border-[var(--card-border)] bg-white/80 px-3.5 py-2.5 text-sm outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-100"
+              >
+                <option value="dev">dev — ne šalje (link u logovima)</option>
+                <option value="resend">resend</option>
+                <option value="smtp">smtp</option>
+              </select>
+            </div>
+            <TextField f={F("EMAIL_FROM")} placeholder="NibaChat &lt;noreply@nibachat.app&gt;" />
+          </div>
+          <SecretField f={F("RESEND_API_KEY")} />
+          <div className="grid gap-3 sm:grid-cols-3">
+            <TextField f={F("SMTP_HOST")} placeholder="smtp.example.com" />
+            <TextField f={F("SMTP_PORT")} placeholder="587" />
+            <TextField f={F("SMTP_USER")} placeholder="user@example.com" />
+          </div>
+          <SecretField f={F("SMTP_PASSWORD")} />
         </div>
       </Card>
 

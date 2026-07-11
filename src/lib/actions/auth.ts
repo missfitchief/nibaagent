@@ -6,7 +6,11 @@ import { z } from "zod";
 import { db } from "../db/client";
 import { businesses, users } from "../db/schema";
 import { hashPassword, verifyPassword } from "../auth/password";
-import { createSession, destroySession } from "../auth/session";
+import { createSession, destroySession, getSession } from "../auth/session";
+import { canResendVerification, createVerificationToken, isEmailVerified } from "../verification";
+import { sendVerificationEmail } from "../email";
+import { resolvePlatform } from "../platform";
+import { logEvent } from "../meta";
 import { env } from "../env";
 
 export interface AuthState {
@@ -30,8 +34,19 @@ export async function signupAction(_prev: AuthState, formData: FormData): Promis
     .insert(users)
     .values({ email: parsed.data.email, name, passwordHash: await hashPassword(parsed.data.password), role: "client" })
     .returning();
+
+  // Create the account UNVERIFIED and send a verification email. We still start a
+  // session so we know who they are, but the /app layout gates the dashboard
+  // until email_verified_at is set.
+  const appUrl = (await resolvePlatform("APP_URL")).value || "https://nibaagent.vercel.app";
+  const token = await createVerificationToken(user.id, user.email);
+  const verifyUrl = `${appUrl.replace(/\/$/, "")}/verify-email?token=${token}`;
+  const mail = await sendVerificationEmail(user.email, name, verifyUrl);
+  // Sanitized log (dev mode records the link so an operator can verify manually).
+  await logEvent(null, mail.sent ? "info" : "warn", "system", `Verifikacioni email (${mail.mode}) za ${user.email}: ${mail.note}`, { email: user.email, mode: mail.mode, sent: mail.sent });
+
   await createSession({ userId: user.id, email: user.email, role: "client", name: user.name });
-  redirect("/app/onboarding");
+  redirect("/app");
 }
 
 export async function loginAction(_prev: AuthState, formData: FormData): Promise<AuthState> {
@@ -81,6 +96,28 @@ export async function adminLoginAction(_prev: AuthState, formData: FormData): Pr
     redirect("/admin");
   }
   return { error: "Invalid credentials." };
+}
+
+export interface ResendState {
+  ok?: boolean;
+  error?: string;
+  note?: string;
+}
+
+/** Resend the verification email to the signed-in user. Rate-limited (60s). */
+export async function resendVerificationAction(_prev: ResendState, _formData: FormData): Promise<ResendState> {
+  const session = await getSession();
+  if (!session) return { error: "Prijavite se ponovo." };
+  if (await isEmailVerified(session.userId)) return { ok: true, note: "Email je već potvrđen." };
+  if (!(await canResendVerification(session.userId))) {
+    return { error: "Sačekajte minut pre ponovnog slanja." };
+  }
+  const appUrl = (await resolvePlatform("APP_URL")).value || "https://nibaagent.vercel.app";
+  const token = await createVerificationToken(session.userId, session.email);
+  const verifyUrl = `${appUrl.replace(/\/$/, "")}/verify-email?token=${token}`;
+  const mail = await sendVerificationEmail(session.email, session.name, verifyUrl);
+  await logEvent(null, mail.sent ? "info" : "warn", "system", `Ponovni verifikacioni email (${mail.mode}) za ${session.email}: ${mail.note}`, { email: session.email, mode: mail.mode });
+  return { ok: true, note: mail.sent ? "Email je ponovo poslat." : "Slanje emaila nije konfigurisano (dev režim). Link je u logovima." };
 }
 
 export async function logoutAction(): Promise<void> {

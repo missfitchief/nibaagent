@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 import { adminManualConnectionAction, adminUpdateBusinessAction } from "@/lib/actions/admin";
-import { syncN8nRuntimeAction, telegramTestAction } from "@/lib/actions/tools";
+import { syncN8nRuntimeAction, telegramTestAction, testImageRecognitionAction, type ImageTestState } from "@/lib/actions/tools";
 import { deleteBusinessAction } from "@/lib/actions/danger";
 import type { ActionState } from "@/lib/actions/business";
 import { Button, Card, ErrorNote, Input, Label } from "@/components/ui";
@@ -130,6 +130,58 @@ export function TelegramTestButton({ businessId }: { businessId: string }) {
       {state.ok && <span className="text-sm text-emerald-600">Sent ✓</span>}
       {state.error && <span className="text-sm text-rose-600">{state.error}</span>}
     </form>
+  );
+}
+
+function Row({ k, v, tone }: { k: string; v: string; tone?: "ok" | "warn" | "error" }) {
+  const color = tone === "ok" ? "text-emerald-600" : tone === "error" ? "text-rose-600" : tone === "warn" ? "text-amber-600" : "";
+  return (
+    <div className="flex justify-between gap-3 border-t border-[var(--card-border)] py-1.5 text-sm first:border-t-0">
+      <span className="text-[var(--ink-soft)]">{k}</span>
+      <span className={"text-right font-medium " + color}>{v}</span>
+    </div>
+  );
+}
+
+export function ImageRecognitionTest({ businessId }: { businessId: string }) {
+  const [state, formAction, pending] = useActionState<ImageTestState, FormData>(testImageRecognitionAction, {});
+  const r = state.result;
+  return (
+    <Card>
+      <h2 className="font-semibold">Test prepoznavanja slike</h2>
+      <p className="mt-1 text-xs text-[var(--ink-soft)]">
+        Zalepite URL fotografije (kao što n8n prosleđuje) i opciono poruku. Prikazuje ceo tok: tenant, da li je prepoznavanje
+        uključeno, provajder/model, uspeh vizije, pronađen proizvod, generisan odgovor i grešku ako je bilo.
+      </p>
+      <form action={formAction} className="mt-3 space-y-2">
+        <input type="hidden" name="businessId" value={businessId} />
+        <Input name="imageUrl" placeholder="https://…/slika.jpg" autoComplete="off" required />
+        <Input name="message" placeholder="Opciona poruka kupca (npr. „koliko košta ova haljina?“)" autoComplete="off" />
+        <Button type="submit" disabled={pending}>
+          {pending ? "Analiziram…" : "Testiraj prepoznavanje slike"}
+        </Button>
+      </form>
+      {state.error && <p className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{state.error}</p>}
+      {r && (
+        <div className="mt-4 rounded-xl border border-[var(--card-border)] bg-white/60 p-4">
+          <Row k="Tenant razrešen" v="da" tone="ok" />
+          <Row k="Prepoznavanje uključeno" v={r.recognitionEnabled ? "da" : "ne"} tone={r.recognitionEnabled ? "ok" : "warn"} />
+          <Row k="Provajder / model" v={`${r.provider} / ${r.visionModel}`} />
+          <Row k="API ključ spreman" v={r.keyReady ? `da (${r.keySource})` : "ne"} tone={r.keyReady ? "ok" : "error"} />
+          <Row k="Vizija uspešna" v={r.visionOk ? "da" : "ne"} tone={r.visionOk ? "ok" : "error"} />
+          {r.description && <Row k="Opis slike" v={r.description} />}
+          <Row k="Pronađen proizvod" v={r.matchedProduct ?? "—"} tone={r.matchedProduct ? "ok" : "warn"} />
+          <Row k="Intent" v={r.intent || "—"} />
+          {r.error && <Row k="Greška" v={r.error} tone="error" />}
+          {r.answer && (
+            <div className="mt-3 rounded-lg border border-[var(--card-border)] bg-slate-50 p-3 text-sm">
+              <div className="mb-1 text-xs font-medium text-[var(--ink-soft)]">Generisan odgovor</div>
+              {r.answer}
+            </div>
+          )}
+        </div>
+      )}
+    </Card>
   );
 }
 

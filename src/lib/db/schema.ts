@@ -29,9 +29,28 @@ export const users = pgTable("users", {
   name: text("name").notNull().default(""),
   passwordHash: text("password_hash").notNull(),
   role: text("role", { enum: ["admin", "client"] }).notNull().default("client"),
+  /** null = email not yet verified. Gates full dashboard access for clients. */
+  emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
 });
+
+/** Hashed, single-use, expiring email-verification tokens (raw token is emailed, never stored). */
+export const emailVerificationTokens = pgTable(
+  "email_verification_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    email: text("email").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [uniqueIndex("evt_token_hash_idx").on(t.tokenHash), index("evt_user_idx").on(t.userId)]
+);
 
 export const businesses = pgTable(
   "businesses",
@@ -543,7 +562,7 @@ export const subscriptions = pgTable("subscriptions", {
  * business supplies itself. Kinds are an enum so a typo can't create a
  * silently-unreadable secret.
  */
-export const SECRET_KINDS = ["openai_api_key", "telegram_bot_token", "telegram_chat_id"] as const;
+export const SECRET_KINDS = ["openai_api_key", "anthropic_api_key", "telegram_bot_token", "telegram_chat_id"] as const;
 export type SecretKind = (typeof SECRET_KINDS)[number];
 
 export const businessSecrets = pgTable(
@@ -571,10 +590,14 @@ export const eventLogs = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     businessId: uuid("business_id").references(() => businesses.id),
     level: text("level", { enum: ["info", "warn", "error"] }).notNull().default("info"),
-    area: text("area").notNull(), // meta_oauth | webhook_subscribe | ai_reply | token | sheet_sync | notification | admin
+    area: text("area").notNull(), // = SOURCE: meta_oauth | webhook_subscribe | ai_reply | n8n_sync | admin | product_import | knowledge_import | notification | system
+    /** Optional finer-grained event key within a source (e.g. "token_param_error"). */
+    eventType: text("event_type").notNull().default(""),
     message: text("message").notNull(),
     metadata: jsonb("metadata").notNull().default({}),
+    /** For error triage: set when an admin/owner marks the error reviewed. */
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
   },
-  (t) => [index("event_logs_business_idx").on(t.businessId, t.createdAt), index("event_logs_area_idx").on(t.area)]
+  (t) => [index("event_logs_business_idx").on(t.businessId, t.createdAt), index("event_logs_area_idx").on(t.area), index("event_logs_level_idx").on(t.level)]
 );

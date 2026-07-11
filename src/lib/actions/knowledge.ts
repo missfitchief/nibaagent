@@ -4,7 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "../db/client";
-import { knowledgeSources } from "../db/schema";
+import { eventLogs, knowledgeSources } from "../db/schema";
 import { requireBusiness } from "../auth/guards";
 import { safeSyncLearningMemories } from "../n8n-sync";
 import { planDef } from "../plans";
@@ -77,6 +77,13 @@ export async function createKnowledgeAction(_prev: ActionState, formData: FormDa
     content,
     sourceUrl: parsed.data.sourceUrl,
     status
+  });
+  await db().insert(eventLogs).values({
+    businessId: business.id,
+    level: status === "error" ? "warn" : "info",
+    area: "knowledge_import",
+    message: status === "error" ? `Unos znanja „${parsed.data.title}" sačuvan, ali sajt nije mogao biti učitan` : `Dodat izvor znanja „${parsed.data.title}" (${parsed.data.type})`,
+    metadata: { type: parsed.data.type, status }
   });
   await safeSyncLearningMemories(business.id);
   revalidatePath("/app/knowledge");

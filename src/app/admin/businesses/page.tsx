@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { desc, ilike } from "drizzle-orm";
+import { and, desc, eq, ilike } from "drizzle-orm";
 import { requireAdmin } from "@/lib/auth/guards";
 import { db } from "@/lib/db/client";
 import { businesses } from "@/lib/db/schema";
@@ -14,11 +14,17 @@ export default async function BusinessesPage({
   await requireAdmin();
   const sp = await searchParams;
   const q = typeof sp.q === "string" ? sp.q.trim() : "";
+  const showArchived = sp.archived === "1";
 
+  // Archived (status='inactive') businesses are hidden by default.
+  const filters = [
+    q ? ilike(businesses.name, `%${q}%`) : undefined,
+    showArchived ? undefined : eq(businesses.status, "active")
+  ].filter(Boolean);
   const rows = await db()
     .select()
     .from(businesses)
-    .where(q ? ilike(businesses.name, `%${q}%`) : undefined)
+    .where(filters.length ? and(...filters) : undefined)
     .orderBy(desc(businesses.createdAt))
     .limit(100);
 
@@ -26,9 +32,16 @@ export default async function BusinessesPage({
     <main className="space-y-5">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">Businesses</h1>
-        <form className="flex gap-2">
+        <form className="flex flex-wrap items-center gap-2">
           <Input name="q" defaultValue={q} placeholder="Search by name…" className="w-64" />
+          {showArchived && <input type="hidden" name="archived" value="1" />}
           <button className="btn-primary rounded-xl px-4 py-2 text-sm font-medium">Search</button>
+          <Link
+            href={showArchived ? `/admin/businesses${q ? `?q=${encodeURIComponent(q)}` : ""}` : `/admin/businesses?archived=1${q ? `&q=${encodeURIComponent(q)}` : ""}`}
+            className="rounded-xl border border-[var(--card-border)] px-3 py-2 text-sm hover:bg-slate-50"
+          >
+            {showArchived ? "Hide archived" : "Show archived"}
+          </Link>
         </form>
       </header>
 

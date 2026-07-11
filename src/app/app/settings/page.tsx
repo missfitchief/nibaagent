@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { ownBusiness, requireUser } from "@/lib/auth/guards";
 import { listMaskedSecrets } from "@/lib/secrets";
+import { resolveProviderRuntimeConfig } from "@/lib/ai-runtime";
 import { VERSION } from "@/lib/version";
 import { SettingsForm } from "./form";
 import { SecretsPanel } from "./secrets";
@@ -10,6 +11,8 @@ export default async function SettingsPage() {
   const business = await ownBusiness(user);
   if (!business) redirect("/app/onboarding");
   const secrets = await listMaskedSecrets(business.id);
+  const cfg = await resolveProviderRuntimeConfig(business.id);
+  const usage = { mode: cfg.mode, provider: cfg.provider, source: cfg.keySource, ready: cfg.ready, reason: cfg.reason, isAdmin: user.role === "admin" };
 
   return (
     <main className="mx-auto max-w-3xl space-y-5">
@@ -27,7 +30,7 @@ export default async function SettingsPage() {
           whatsappNotificationTarget: business.whatsappNotificationTarget
         }}
       />
-      <SecretsPanel businessId={business.id} secrets={secrets} />
+      <SecretsPanel businessId={business.id} secrets={secrets} usage={usage} />
       <p className="text-center text-xs text-[var(--ink-soft)]">
         NibaChat Agent · build {VERSION.commit} · {VERSION.buildTime.slice(0, 16).replace("T", " ")} · {VERSION.env}
       </p>

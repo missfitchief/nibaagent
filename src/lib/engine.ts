@@ -5,7 +5,10 @@ import { botSettings, businesses, knowledgeSources, metaConnections } from "./db
 import { MODEL_COST_PER_1K } from "./plans";
 import { resolveOpenAiKey, resolveAnthropicKey } from "./secrets";
 import { matchProducts, productFacts, variantFacts, variantsFor } from "./products";
-import { pickModel, APP_DEFAULT_MODEL, type Provider } from "./models";
+import { pickModel, sanitizeModel, APP_DEFAULT_MODEL, APP_DEFAULT_VISION_MODEL, type Provider } from "./models";
+import { callOpenAiChat, resolveProviderRuntimeConfig, sanitizeAiError } from "./ai-runtime";
+import { resolvePlatform } from "./platform";
+import { logEvent } from "./meta";
 import { withinBusinessHours, type BusinessHours } from "./hours";
 
 /**
@@ -192,9 +195,17 @@ export async function runEngine(businessId: string, message: string, opts: Engin
   // own vision model/key and fold the description into the query, so every
   // downstream match stays scoped to this tenant's catalog/knowledge.
   if (opts.imageUrl && settings?.imageRecognitionEnabled) {
-    const describe = opts.describeImage ?? ((url: string) => describeImageWithTenantKey(businessId, url, provider, biz.selectedModel));
+    const visionModel =
+      sanitizeModel((await resolvePlatform("DEFAULT_VISION_MODEL")).value) ||
+      (provider === "anthropic" ? "claude-3-5-sonnet-latest" : APP_DEFAULT_VISION_MODEL);
+    await logEvent(businessId, "info", "ai_reply", `image_url primljen — prepoznavanje uključeno (model ${visionModel})`, { visionModel });
+    const describe = opts.describeImage ?? ((url: string) => describeImageWithTenantKey(businessId, url, provider, visionModel));
     const desc = await describe(opts.imageUrl).catch(() => null);
-    if (desc) message = `${message ? message + " " : ""}[Slika prikazuje: ${desc}]`.trim();
+    if (desc) {
+      message = `${message ? message + " " : ""}[Slika prikazuje: ${desc}]`.trim();
+    } else {
+      await logEvent(businessId, "warn", "ai_reply", "Slika nije mogla biti analizirana — nastavljam bez prepoznavanja slike");
+    }
   }
 
   // 1. handoff words — cheapest, safest
@@ -247,15 +258,15 @@ export async function runEngine(businessId: string, message: string, opts: Engin
     return withSend({ ...base, intent: "unknown", handoffTriggered: u.handoff, reply: u.reply, note: `no grounding (product conf ${productConfidence} < ${threshold})` });
   }
 
-  // Resolve provider key
+  // Resolve provider key (honors platform usage mode: business_key_required has no fallback).
   const resolved = provider === "anthropic" ? await resolveAnthropicKey(businessId) : await resolveOpenAiKey(businessId);
   if (!resolved.key) {
-    return {
-      ...base,
-      intent: "no_ai",
-      reply: "",
-      note: `No ${provider} key for this business and no platform fallback configured. Rules (FAQ/handoff/order) still work.`
-    };
+    const note =
+      resolved.mode === "business_key_required"
+        ? `API ključ biznisa je obavezan (${provider}) a nije unet — bot ne poziva AI. Pravila (FAQ/predaja/porudžbina) i dalje rade.`
+        : `Nema ${provider} ključa za ovaj biznis ni platformskog ključa. Pravila (FAQ/predaja/porudžbina) i dalje rade.`;
+    await logEvent(businessId, "warn", "ai_reply", `API ključ nedostaje (${provider}, mode=${resolved.mode})`, { provider, mode: resolved.mode });
+    return { ...base, intent: "no_ai", reply: "", note };
   }
 
   const topProducts = confidentProduct ? productMatches.slice(0, 6) : [];
@@ -281,9 +292,20 @@ export async function runEngine(businessId: string, message: string, opts: Engin
     .join("\n\n");
 
   const model = pickModel({ provider, businessModel: biz.selectedModel, platformDefault: null }) || APP_DEFAULT_MODEL[provider];
-  const ai = provider === "anthropic"
-    ? await callAnthropic(resolved.key, model, system, message)
-    : await callOpenAi(resolved.key, model, system, message);
+  let ai: { text: string; tokens: number };
+  try {
+    ai = provider === "anthropic"
+      ? await callAnthropic(resolved.key, model, system, message)
+      : await callOpenAi(resolved.key, model, system, message);
+  } catch (err) {
+    // Sanitized, per-business, human-readable — surfaces in the admin logs tab.
+    await logEvent(businessId, "error", "ai_reply", `AI reply failed (${provider}/${model}): ${sanitizeAiError((err as Error).message)}`, {
+      provider,
+      model,
+      keySource: resolved.source
+    });
+    throw err;
+  }
 
   const cost = (ai.tokens / 1000) * (MODEL_COST_PER_1K[model] ?? 0.001);
   return withSend({
@@ -310,61 +332,135 @@ const VISION_PROMPT =
  * null if neither key is available (caller then asks for a text description).
  * Never logs token material.
  */
-export async function describeImageWithTenantKey(
+/** Core vision describe — returns {text,error}; does NOT log (caller decides). */
+async function visionDescribe(
   businessId: string,
   imageUrl: string,
   provider: Provider,
-  businessModel: string | null
-): Promise<string | null> {
+  visionModel: string
+): Promise<{ text: string | null; error: string }> {
   const openai = async () => {
     const { key } = await resolveOpenAiKey(businessId);
     if (!key) return null;
-    const model = businessModel && /^gpt-4o/i.test(businessModel) ? businessModel : "gpt-4o-mini";
+    // Vision needs a vision-capable OpenAI model; guard against a text-only default.
+    const model = /^gpt-4o|^gpt-4\.1|vision|^o[134]/i.test(visionModel) ? visionModel : APP_DEFAULT_VISION_MODEL;
     return openaiVision(key, model, imageUrl);
   };
   const anthropic = async () => {
     const { key } = await resolveAnthropicKey(businessId);
     if (!key) return null;
-    return anthropicVision(key, imageUrl);
+    return anthropicVision(key, /claude/i.test(visionModel) ? visionModel : "claude-3-5-sonnet-latest", imageUrl);
   };
   try {
-    if (provider === "anthropic") return (await anthropic()) ?? (await openai());
-    return (await openai()) ?? (await anthropic());
-  } catch {
-    return null;
+    const text = provider === "anthropic" ? (await anthropic()) ?? (await openai()) : (await openai()) ?? (await anthropic());
+    return { text, error: "" };
+  } catch (err) {
+    return { text: null, error: sanitizeAiError((err as Error).message) };
   }
 }
 
-async function openaiVision(key: string, model: string, imageUrl: string): Promise<string | null> {
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-    body: JSON.stringify({
-      model,
-      max_tokens: 160,
-      temperature: 0.2,
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: VISION_PROMPT },
-            { type: "image_url", image_url: { url: imageUrl } }
-          ]
-        }
-      ]
-    })
-  });
-  const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }>; error?: { message?: string } };
-  if (!res.ok || data.error) throw new Error(data.error?.message ?? `openai_vision_${res.status}`);
-  return data.choices?.[0]?.message?.content?.trim() || null;
+export async function describeImageWithTenantKey(
+  businessId: string,
+  imageUrl: string,
+  provider: Provider,
+  visionModel: string
+): Promise<string | null> {
+  const r = await visionDescribe(businessId, imageUrl, provider, visionModel);
+  if (r.error) {
+    // Model not vision-capable / bad image / provider error → clear per-business log, graceful null.
+    await logEvent(businessId, "error", "ai_reply", `Slika nije mogla biti analizirana (${provider}/${visionModel}): ${r.error}`, { provider, visionModel });
+  }
+  return r.text;
 }
 
-async function anthropicVision(key: string, imageUrl: string): Promise<string | null> {
+export interface ImageDiagnosis {
+  recognitionEnabled: boolean;
+  provider: Provider;
+  visionModel: string;
+  keyReady: boolean;
+  keySource: string;
+  visionOk: boolean;
+  description: string;
+  matchedProduct: string | null;
+  answer: string;
+  intent: string;
+  error: string;
+}
+
+/**
+ * Admin "Test image recognition": run each stage explicitly and report what
+ * happened — recognition on/off, provider+model, vision success, matched
+ * product, generated answer, sanitized error. Strictly tenant-scoped.
+ */
+export async function diagnoseImageRecognition(businessId: string, imageUrl: string, message: string): Promise<ImageDiagnosis> {
+  const cfg = await resolveProviderRuntimeConfig(businessId);
+  const out: ImageDiagnosis = {
+    recognitionEnabled: cfg.imageRecognitionEnabled,
+    provider: cfg.provider,
+    visionModel: cfg.visionModel,
+    keyReady: cfg.ready,
+    keySource: cfg.keySource,
+    visionOk: false,
+    description: "",
+    matchedProduct: null,
+    answer: "",
+    intent: "",
+    error: ""
+  };
+
+  let description: string | null = null;
+  if (!cfg.imageRecognitionEnabled) {
+    out.error = "Prepoznavanje slika je isključeno za ovaj biznis.";
+  } else if (!cfg.ready) {
+    out.error = cfg.reason;
+  } else {
+    const r = await visionDescribe(businessId, imageUrl, cfg.provider, cfg.visionModel);
+    description = r.text;
+    out.visionOk = Boolean(r.text);
+    out.description = r.text ?? "";
+    out.error = r.error || (r.text ? "" : "Model nije vratio opis (možda nije vision-capable ili je slika nedostupna).");
+    if (description) {
+      const matches = await matchProducts(businessId, description);
+      out.matchedProduct = matches[0]?.product.title ?? null;
+    }
+  }
+
+  // Show the ACTUAL bot answer. Reuse the captured description to avoid a 2nd vision call.
+  try {
+    const eng = await runEngine(businessId, message, { imageUrl, describeImage: description ? async () => description : undefined });
+    out.answer = eng.reply;
+    out.intent = eng.intent;
+  } catch (err) {
+    out.error = out.error || sanitizeAiError((err as Error).message);
+  }
+  return out;
+}
+
+async function openaiVision(key: string, model: string, imageUrl: string): Promise<string | null> {
+  const r = await callOpenAiChat({
+    key,
+    model,
+    maxTokens: 160,
+    temperature: 0.2,
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: VISION_PROMPT },
+          { type: "image_url", image_url: { url: imageUrl } }
+        ]
+      }
+    ]
+  });
+  return r.text || null;
+}
+
+async function anthropicVision(key: string, model: string, imageUrl: string): Promise<string | null> {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
     body: JSON.stringify({
-      model: "claude-3-5-sonnet-latest",
+      model,
       max_tokens: 200,
       messages: [
         {
@@ -416,22 +512,18 @@ export async function runEngineForInbound(
 }
 
 async function callOpenAi(key: string, model: string, system: string, message: string): Promise<{ text: string; tokens: number }> {
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: message.slice(0, 1000) }
-      ],
-      max_tokens: 220,
-      temperature: 0.4
-    })
+  // Adaptive token-param handling (max_tokens vs max_completion_tokens) lives in ai-runtime.
+  const r = await callOpenAiChat({
+    key,
+    model,
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: message.slice(0, 1000) }
+    ],
+    maxTokens: 220,
+    temperature: 0.4
   });
-  const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }>; usage?: { total_tokens?: number }; error?: { message?: string } };
-  if (!res.ok || data.error) throw new Error(data.error?.message ?? `openai_${res.status}`);
-  return { text: data.choices?.[0]?.message?.content?.trim() ?? "", tokens: data.usage?.total_tokens ?? 0 };
+  return { text: r.text, tokens: r.tokens };
 }
 
 async function callAnthropic(key: string, model: string, system: string, message: string): Promise<{ text: string; tokens: number }> {

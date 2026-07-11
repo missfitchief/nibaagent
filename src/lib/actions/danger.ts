@@ -6,21 +6,27 @@ import { z } from "zod";
 import { db } from "../db/client";
 import {
   adminAuditLogs,
+  analyticsDaily,
+  botSettings,
   businessMembers,
   businesses,
   businessSecrets,
+  catalogSnapshots,
   conversations,
   eventLogs,
   handoffs,
   invites,
   knowledgeChunks,
   knowledgeSources,
+  learningMemories,
   messages,
   metaConnections,
   orders,
   productImages,
   productVariants,
-  products
+  products,
+  subscriptions,
+  tenantConfigs
 } from "../db/schema";
 import { canEdit, requireBusiness } from "../auth/guards";
 
@@ -99,18 +105,47 @@ export async function clearTestConversationsAction(formData: FormData): Promise<
   revalidatePath(`/admin/businesses/${business.id}`);
 }
 
-const DeleteBusiness = z.object({ businessId: z.string().uuid(), confirm: z.string() });
+const DeleteBusiness = z.object({ businessId: z.string().uuid(), confirm: z.string(), confirmDisconnect: z.coerce.boolean().default(false) });
 
-/** Hard delete. Requires typing the exact slug. Admin/owner only. */
+/**
+ * Hard delete. Platform-admin/owner only, requires typing the exact slug, and is
+ * blocked while an ACTIVE Meta connection exists unless the operator confirms the
+ * disconnect. Removes EVERY tenant-scoped table (FK-dependency order) so no row
+ * is orphaned and no FK aborts the delete — including bot_settings, analytics,
+ * subscriptions, event_logs and the n8n tables (tenant_configs / catalog_snapshots
+ * / learning_memories). Strictly scoped by business_id.
+ */
 export async function deleteBusinessAction(_prev: { error?: string; ok?: boolean }, formData: FormData) {
   const p = DeleteBusiness.safeParse(Object.fromEntries(formData));
-  if (!p.success) return { error: "Invalid request." };
+  if (!p.success) return { error: "Neispravan zahtev." };
   const { user, business, role } = await requireBusiness(p.data.businessId, "admin");
-  if (!canEdit(role)) return { error: "No permission." };
-  if (p.data.confirm.trim() !== business.slug) return { error: `Type the exact slug "${business.slug}" to confirm.` };
+  if (!canEdit(role)) return { error: "Nemate dozvolu." };
+  if (p.data.confirm.trim() !== business.slug) return { error: `Upišite tačan slug „${business.slug}" za potvrdu.` };
 
   const bid = business.id;
-  // Child rows first (FK order), all business-scoped.
+
+  // Guard: don't silently delete a business with a live Meta connection.
+  const activeConn = (
+    await db().select({ id: metaConnections.id }).from(metaConnections).where(and(eq(metaConnections.businessId, bid), inArray(metaConnections.status, ["active", "connected", "partial"]))).limit(1)
+  )[0];
+  if (activeConn && !p.data.confirmDisconnect) {
+    return { error: "Ovaj biznis ima aktivnu Meta konekciju. Potvrdite prekid veze (Disconnect) pre brisanja." };
+  }
+
+  // Audit BEFORE the business row goes (targetId references it as text, not FK).
+  await audit(user.userId, "business.delete", bid, { name: business.name, slug: business.slug, hadActiveConnection: Boolean(activeConn) });
+  await purgeBusinessData(bid);
+  return { ok: true };
+}
+
+/**
+ * Delete EVERY tenant-scoped row for a business, in FK-dependency order, then the
+ * business itself. Tenant-scoped (only `businessId` rows). Exported so the cascade
+ * is unit-testable independent of the auth guard. `bidText` covers the n8n tables
+ * whose business_id is TEXT (no FK).
+ */
+export async function purgeBusinessData(bid: string): Promise<void> {
+  const bidText = bid;
   await db().delete(messages).where(eq(messages.businessId, bid));
   await db().delete(handoffs).where(eq(handoffs.businessId, bid));
   await db().delete(orders).where(eq(orders.businessId, bid));
@@ -122,12 +157,17 @@ export async function deleteBusinessAction(_prev: { error?: string; ok?: boolean
   await db().delete(products).where(eq(products.businessId, bid));
   await db().delete(businessSecrets).where(eq(businessSecrets.businessId, bid));
   await db().delete(metaConnections).where(eq(metaConnections.businessId, bid));
+  await db().delete(analyticsDaily).where(eq(analyticsDaily.businessId, bid));
+  await db().delete(subscriptions).where(eq(subscriptions.businessId, bid));
+  await db().delete(botSettings).where(eq(botSettings.businessId, bid));
+  await db().delete(eventLogs).where(eq(eventLogs.businessId, bid));
   await db().delete(invites).where(eq(invites.businessId, bid));
   await db().delete(businessMembers).where(eq(businessMembers.businessId, bid));
-  // Audit BEFORE the business row goes (targetId references it as text, not FK).
-  await audit(user.userId, "business.delete", bid, { name: business.name, slug: business.slug });
+  // n8n compat tables use a TEXT business_id (no FK) — clear them too so n8n sees nothing.
+  await db().delete(tenantConfigs).where(eq(tenantConfigs.businessId, bidText));
+  await db().delete(catalogSnapshots).where(eq(catalogSnapshots.businessId, bidText));
+  await db().delete(learningMemories).where(eq(learningMemories.businessId, bidText));
   await db().delete(businesses).where(eq(businesses.id, bid));
-  return { ok: true };
 }
 
 const OrderNote = z.object({ businessId: z.string().uuid(), orderId: z.string().uuid(), note: z.string().max(1000) });

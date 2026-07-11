@@ -3,7 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "./db/client";
 import { businessSecrets, eventLogs, type SecretKind } from "./db/schema";
 import { decryptToken, encryptToken } from "./crypto";
-import { resolvePlatform } from "./platform";
+import { resolvePlatform, resolveUsageMode, type AiUsageMode } from "./platform";
 
 /**
  * Per-business secret vault. Every value is encrypted at rest and only ever
@@ -67,7 +67,7 @@ export async function getBusinessSecret(businessId: string, kind: SecretKind): P
 export async function listMaskedSecrets(businessId: string): Promise<MaskedSecret[]> {
   const rows = await db().select().from(businessSecrets).where(eq(businessSecrets.businessId, businessId));
   const byKind = new Map(rows.map((r) => [r.kind, r]));
-  return (["openai_api_key", "telegram_bot_token", "telegram_chat_id"] as SecretKind[]).map((kind) => {
+  return (["openai_api_key", "anthropic_api_key", "telegram_bot_token", "telegram_chat_id"] as SecretKind[]).map((kind) => {
     const r = byKind.get(kind);
     return {
       kind,
@@ -81,38 +81,41 @@ export async function listMaskedSecrets(businessId: string): Promise<MaskedSecre
 export interface KeyResolution {
   key: string;
   source: "business_key" | "platform_key" | "none";
+  /** The platform usage mode in effect (drives UI + whether the bot may run). */
+  mode: AiUsageMode;
 }
 
 /**
- * OpenAI key resolution (spec §PER-BUSINESS TOKENS):
- *   1. business's own key, else 2. platform key, else 3. none.
- * Logs WHICH source was used (never the key) to event_logs so cost/attribution
- * is auditable per business.
+ * Resolve an AI key honoring the platform usage mode (see resolveUsageMode):
+ *   - business_key_required → business key ONLY; missing = none (no platform fallback).
+ *   - platform_key_only / business_key_allowed → business key if present, else platform.
+ * Logs WHICH source was used (never the key) so per-business attribution is auditable.
  */
-export async function resolveOpenAiKey(businessId: string): Promise<KeyResolution> {
-  const own = await getBusinessSecret(businessId, "openai_api_key");
+async function resolveKey(businessId: string, businessKind: SecretKind, platformKey: "OPENAI_API_KEY" | "ANTHROPIC_API_KEY"): Promise<KeyResolution> {
+  const mode = await resolveUsageMode();
+  // In platform_key_only the platform always pays — business keys are not consulted.
+  const own = mode === "platform_key_only" ? "" : await getBusinessSecret(businessId, businessKind);
   if (own) {
     await logKeySource(businessId, "business_key");
-    return { key: own, source: "business_key" };
+    return { key: own, source: "business_key", mode };
   }
-  // Platform fallback now comes from platform_settings (DB) → env, so a key set
-  // in the admin App Settings page is actually used by the engine.
-  const platform = (await resolvePlatform("OPENAI_API_KEY")).value;
+  if (mode === "business_key_required") {
+    return { key: "", source: "none", mode }; // no platform fallback in "bring your own key" mode
+  }
+  const platform = (await resolvePlatform(platformKey)).value;
   if (platform) {
     await logKeySource(businessId, "platform_key");
-    return { key: platform, source: "platform_key" };
+    return { key: platform, source: "platform_key", mode };
   }
-  return { key: "", source: "none" };
+  return { key: "", source: "none", mode };
 }
 
-/** Anthropic key resolution — platform-level only (no per-business Anthropic key yet). */
-export async function resolveAnthropicKey(businessId: string): Promise<KeyResolution> {
-  const platform = (await resolvePlatform("ANTHROPIC_API_KEY")).value;
-  if (platform) {
-    await logKeySource(businessId, "platform_key");
-    return { key: platform, source: "platform_key" };
-  }
-  return { key: "", source: "none" };
+export function resolveOpenAiKey(businessId: string): Promise<KeyResolution> {
+  return resolveKey(businessId, "openai_api_key", "OPENAI_API_KEY");
+}
+
+export function resolveAnthropicKey(businessId: string): Promise<KeyResolution> {
+  return resolveKey(businessId, "anthropic_api_key", "ANTHROPIC_API_KEY");
 }
 
 /** Telegram config resolution: business token+chat, else platform token fallback. */

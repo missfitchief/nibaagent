@@ -7,7 +7,6 @@ import {
   botSettings,
   businesses,
   conversations,
-  eventLogs,
   handoffs,
   messages,
   metaConnections,
@@ -19,6 +18,9 @@ import { maskToken } from "@/lib/crypto";
 import { knowledgeSources } from "@/lib/db/schema";
 import { listProducts } from "@/lib/products";
 import { listMaskedSecrets } from "@/lib/secrets";
+import { resolveProviderRuntimeConfig } from "@/lib/ai-runtime";
+import { listBusinessLogs } from "@/lib/logs";
+import { BusinessLogs } from "@/components/business-logs";
 import { missingSetup, setupChecklist } from "@/lib/checklist";
 import { deleteKnowledgeAction } from "@/lib/actions/knowledge";
 import { BotSettingsForm } from "@/app/app/bot/form";
@@ -42,7 +44,7 @@ import { ProductForm } from "@/app/app/products/form";
 import { ImportPanel } from "@/app/app/products/import-panel";
 import { InviteForm } from "@/app/app/team/form";
 import { SecretsPanel } from "@/app/app/settings/secrets";
-import { AdminBusinessForm, DeleteBusinessForm, ManualConnectionForm, SyncN8nButton, TelegramTestButton } from "./forms";
+import { AdminBusinessForm, DeleteBusinessForm, ImageRecognitionTest, ManualConnectionForm, SyncN8nButton, TelegramTestButton } from "./forms";
 import type { BusinessHours } from "@/lib/hours";
 import { metaConfigCheck } from "@/lib/meta-check";
 import { MetaCheckPanel } from "@/components/meta-check-panel";
@@ -98,12 +100,20 @@ export default async function AdminBusinessDetail({
     .where(and(eq(handoffs.businessId, id), eq(handoffs.status, "open")));
   const connections = await d.select().from(metaConnections).where(eq(metaConnections.businessId, id));
   const [settings] = await d.select().from(botSettings).where(eq(botSettings.businessId, id)).limit(1);
-  const logs = await d.select().from(eventLogs).where(eq(eventLogs.businessId, id)).orderBy(desc(eventLogs.createdAt)).limit(20);
+  const logSource = typeof sp.logSource === "string" ? sp.logSource : "all";
+  const logs = tab === "logs" ? await listBusinessLogs(id, logSource) : [];
   const savings = estimateSavings(msg?.ai ?? 0);
   const handoffRate = (msg?.n ?? 0) > 0 ? Math.round(((handoffOpen?.n ?? 0) / (msg?.n ?? 1)) * 100) : 0;
   const productRows = tab === "products" ? await listProducts(id) : [];
   const members = tab === "users" ? await listMembers(id) : [];
   const secrets = tab === "integrations" ? await listMaskedSecrets(id) : [];
+  const integrationsUsage =
+    tab === "integrations"
+      ? await (async () => {
+          const cfg = await resolveProviderRuntimeConfig(id);
+          return { mode: cfg.mode, provider: cfg.provider, source: cfg.keySource, ready: cfg.ready, reason: cfg.reason, isAdmin: true };
+        })()
+      : undefined;
   const convRows =
     tab === "conversations"
       ? await d.select().from(conversations).where(eq(conversations.businessId, id)).orderBy(desc(conversations.lastMessageAt)).limit(50)
@@ -238,7 +248,7 @@ export default async function AdminBusinessDetail({
 
       {tab === "integrations" && (
         <>
-          <SecretsPanel businessId={biz.id} secrets={secrets} />
+          <SecretsPanel businessId={biz.id} secrets={secrets} usage={integrationsUsage} />
           <ManualConnectionForm businessId={biz.id} />
           <Card>
             <h2 className="font-semibold">Notifications</h2>
@@ -356,6 +366,7 @@ export default async function AdminBusinessDetail({
               businessHours: (settings?.businessHours as BusinessHours) ?? { enabled: false }
             }}
           />
+          <ImageRecognitionTest businessId={biz.id} />
         </>
       )}
 
@@ -525,22 +536,7 @@ export default async function AdminBusinessDetail({
       )}
 
       {tab === "logs" && (
-        <Card>
-          <h2 className="font-semibold">Event log (20 most recent)</h2>
-          {logs.length === 0 ? (
-            <p className="mt-2 text-sm text-[var(--ink-soft)]">No events yet.</p>
-          ) : (
-            <ul className="mt-2 space-y-1.5 text-sm">
-              {logs.map((l) => (
-                <li key={l.id} className="flex items-start gap-2">
-                  <Badge tone={l.level === "error" ? "error" : l.level === "warn" ? "warn" : "neutral"}>{l.area}</Badge>
-                  <span className="min-w-0 flex-1">{l.message}</span>
-                  <span className="whitespace-nowrap text-xs text-[var(--ink-soft)]">{l.createdAt.toISOString().replace("T", " ").slice(0, 16)}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
+        <BusinessLogs businessId={biz.id} logs={logs} basePath={`/admin/businesses/${biz.id}?tab=logs`} activeSource={logSource} canResolve={true} />
       )}
 
       {tab === "overview" && (
