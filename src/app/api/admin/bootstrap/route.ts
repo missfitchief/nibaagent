@@ -34,13 +34,42 @@ export async function POST(request: NextRequest) {
   const url = dbUrl();
   if (!url) return NextResponse.json({ error: "no database url in runtime env" }, { status: 500 });
 
-  const body = (await request.json().catch(() => ({}))) as { email?: string; password?: string; seedDemo?: boolean };
+  const body = (await request.json().catch(() => ({}))) as { email?: string; password?: string; seedDemo?: boolean; introspect?: boolean };
   const email = (body.email ?? process.env.ADMIN_EMAIL ?? "").toLowerCase().trim();
   const password = body.password ?? process.env.ADMIN_PASSWORD ?? "";
 
   const pool = new Pool({ connectionString: url, max: 2, ssl: { rejectUnauthorized: false } });
   const applied: string[] = [];
   try {
+    // ---- read-only schema introspection (no data, no secrets) ----
+    if (body.introspect) {
+      const targets = ["meta_connections", "tenant_configs", "catalog_snapshots", "learning_memories", "businesses", "bot_settings", "products", "knowledge_sources"];
+      const cols = (
+        await pool.query(
+          `SELECT table_name, column_name, data_type, is_nullable, column_default
+           FROM information_schema.columns
+           WHERE table_schema='public' AND table_name = ANY($1)
+           ORDER BY table_name, ordinal_position`,
+          [targets]
+        )
+      ).rows;
+      const idx = (
+        await pool.query(
+          `SELECT tablename, indexname, indexdef FROM pg_indexes WHERE schemaname='public' AND tablename = ANY($1)`,
+          [["meta_connections", "tenant_configs", "catalog_snapshots", "learning_memories"]]
+        )
+      ).rows;
+      const counts: Record<string, number | string> = {};
+      for (const tbl of ["meta_connections", "tenant_configs", "catalog_snapshots", "learning_memories"]) {
+        try {
+          counts[tbl] = (await pool.query(`SELECT count(*)::int AS n FROM ${tbl}`)).rows[0].n;
+        } catch {
+          counts[tbl] = "MISSING";
+        }
+      }
+      return NextResponse.json({ ok: true, columns: cols, indexes: idx, counts });
+    }
+
     // ---- migrations ----
     const dir = path.join(process.cwd(), "drizzle");
     await pool.query(`CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
