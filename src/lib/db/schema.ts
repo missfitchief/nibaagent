@@ -330,6 +330,26 @@ export const learningMemories = pgTable(
   (t) => [uniqueIndex("learning_memories_source_idx").on(t.businessId, t.sourceId), index("learning_memories_business_idx").on(t.businessId)]
 );
 
+/**
+ * Tenant registry read by the shared n8n workflow (n8n loads a tenant by
+ * client_id). Synced 1:1 from businesses; client_id is the stable public tenant
+ * id (e.g. "starlight"), business_id is the app's internal UUID. Never secrets.
+ */
+export const tenants = pgTable(
+  "tenants",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    businessId: uuid("business_id").notNull(),
+    clientId: text("client_id").notNull(),
+    name: text("name").notNull().default(""),
+    plan: text("plan").notNull().default("free"),
+    status: text("status").notNull().default("active"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [uniqueIndex("tenants_business_idx").on(t.businessId), index("tenants_client_idx").on(t.clientId)]
+);
+
 /** Shared contract with n8n — anti-duplicate table keyed by Meta message id. */
 export const processedMessages = pgTable(
   "processed_messages",

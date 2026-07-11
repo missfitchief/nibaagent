@@ -9,7 +9,8 @@ import {
   learningMemories,
   metaConnections,
   products,
-  tenantConfigs
+  tenantConfigs,
+  tenants
 } from "./db/schema";
 import { decryptToken } from "./crypto";
 import { clientIdFor } from "./tenant";
@@ -187,8 +188,31 @@ export async function backfillMetaPlaintextTokens(businessId: string): Promise<v
   }
 }
 
-/** Sync everything n8n reads for one tenant (config + catalog + memories). */
+/** Business → tenants registry (n8n looks a tenant up by client_id). Upsert by business_id. */
+export async function syncTenantForBusiness(businessId: string): Promise<void> {
+  const d = db();
+  const [biz] = await d.select().from(businesses).where(eq(businesses.id, businessId)).limit(1);
+  if (!biz) return;
+  const row = { businessId, clientId: clientIdFor(biz), name: biz.name, plan: biz.plan, status: biz.status, updatedAt: new Date() };
+  await d.insert(tenants).values(row).onConflictDoUpdate({ target: tenants.businessId, set: row });
+}
+
+/**
+ * Propagate a business's client_id to EVERY table that stores it, so n8n stays
+ * consistent when an admin renames the tenant id. Idempotent.
+ */
+export async function propagateClientId(businessId: string, clientId: string): Promise<void> {
+  const d = db();
+  await d.update(metaConnections).set({ clientId, updatedAt: new Date() }).where(eq(metaConnections.businessId, businessId));
+  await d.update(tenantConfigs).set({ clientId, updatedAt: new Date() }).where(eq(tenantConfigs.businessId, businessId));
+  await d.update(catalogSnapshots).set({ clientId, updatedAt: new Date() }).where(eq(catalogSnapshots.businessId, businessId));
+  await d.update(learningMemories).set({ clientId, updatedAt: new Date() }).where(eq(learningMemories.businessId, businessId));
+  await syncTenantForBusiness(businessId);
+}
+
+/** Sync everything n8n reads for one tenant (tenant registry + config + catalog + memories). */
 export async function syncAllN8nRuntimeDataForBusiness(businessId: string): Promise<void> {
+  await syncTenantForBusiness(businessId);
   await syncTenantConfigForBusiness(businessId);
   await syncCatalogSnapshotForBusiness(businessId);
   await syncLearningMemoriesForBusiness(businessId);
@@ -210,3 +234,4 @@ export const safeSyncTenantConfig = (businessId: string) => runSafely(businessId
 export const safeSyncCatalog = (businessId: string) => runSafely(businessId, "catalog sync", () => syncCatalogSnapshotForBusiness(businessId));
 export const safeSyncLearningMemories = (businessId: string) => runSafely(businessId, "memories sync", () => syncLearningMemoriesForBusiness(businessId));
 export const safeSyncAllN8n = (businessId: string) => runSafely(businessId, "full n8n sync", () => syncAllN8nRuntimeDataForBusiness(businessId));
+export const safePropagate = (businessId: string, clientId: string) => runSafely(businessId, "client_id propagate", () => propagateClientId(businessId, clientId));

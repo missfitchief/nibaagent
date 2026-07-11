@@ -11,7 +11,7 @@ import { hashPassword } from "../auth/password";
 import { encryptToken, uuid } from "../crypto";
 import { sanitizeModel, APP_DEFAULT_MODEL } from "../models";
 import { clientIdFor } from "../tenant";
-import { safeSyncAllN8n } from "../n8n-sync";
+import { safePropagate, safeSyncAllN8n } from "../n8n-sync";
 import type { ActionState } from "./business";
 
 async function audit(adminUserId: string, action: string, targetId: string, metadata: Record<string, unknown> = {}) {
@@ -111,7 +111,9 @@ export async function adminUpdateBusinessAction(_prev: ActionState, formData: Fo
     .where(eq(businesses.id, businessId));
   // Provider lives on bot_settings — keep it in sync (row exists for every business).
   await db().update(botSettings).set({ aiProvider, updatedAt: new Date() }).where(eq(botSettings.businessId, businessId));
-  await audit(admin.userId, "business.update", businessId, { ...rest, aiProvider, selectedModel: model });
+  // If the tenant id changed, propagate it to meta_connections + n8n tables + tenants registry.
+  if (normalizedClientId) await safePropagate(businessId, normalizedClientId);
+  await audit(admin.userId, "business.update", businessId, { ...rest, aiProvider, selectedModel: model, clientId: normalizedClientId || undefined });
   revalidatePath(`/admin/businesses/${businessId}`);
   return { ok: true };
 }
@@ -174,5 +176,32 @@ export async function adminManualConnectionAction(_prev: ActionState, formData: 
     metadata: { by: admin.email, clientId }
   });
   revalidatePath(`/admin/businesses/${data.businessId}`);
+  return { ok: true };
+}
+
+const MoveConnection = z.object({ businessId: z.string().uuid(), pageId: z.string().min(1).max(120) });
+
+/**
+ * Reassign a Facebook Page (already connected to another tenant) to THIS business.
+ * Platform-admin only — normal clients can never move connections between tenants.
+ */
+export async function adminMoveConnectionAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const admin = await requireAdmin();
+  const parsed = MoveConnection.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return { error: "Invalid request." };
+  const { businessId, pageId } = parsed.data;
+  const [biz] = await db().select().from(businesses).where(eq(businesses.id, businessId)).limit(1);
+  if (!biz) return { error: "Business not found." };
+  const [existing] = await db().select().from(metaConnections).where(eq(metaConnections.pageId, pageId)).limit(1);
+  if (!existing) return { error: "No connection found for that page id." };
+  const clientId = clientIdFor(biz);
+  await db()
+    .update(metaConnections)
+    .set({ businessId, clientId, businessName: biz.name, plan: biz.plan, status: "active", updatedAt: new Date() })
+    .where(eq(metaConnections.pageId, pageId));
+  await safeSyncAllN8n(businessId);
+  await audit(admin.userId, "connection.move", businessId, { pageId, fromClientId: existing.clientId, toClientId: clientId });
+  await db().insert(eventLogs).values({ businessId, level: "warn", area: "meta_oauth", message: `Connection for page ${pageId} moved to client_id=${clientId} (from ${existing.clientId})`, metadata: { by: admin.email } });
+  revalidatePath(`/admin/businesses/${businessId}`);
   return { ok: true };
 }

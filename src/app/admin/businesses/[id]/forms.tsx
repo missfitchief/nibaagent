@@ -1,7 +1,7 @@
 "use client";
 
-import { useActionState } from "react";
-import { adminManualConnectionAction, adminUpdateBusinessAction } from "@/lib/actions/admin";
+import { useActionState, useState } from "react";
+import { adminManualConnectionAction, adminMoveConnectionAction, adminUpdateBusinessAction } from "@/lib/actions/admin";
 import { syncN8nRuntimeAction, telegramTestAction, testImageRecognitionAction, type ImageTestState } from "@/lib/actions/tools";
 import { deleteBusinessAction } from "@/lib/actions/danger";
 import type { ActionState } from "@/lib/actions/business";
@@ -190,6 +190,78 @@ export function ImageRecognitionTest({ businessId }: { businessId: string }) {
         </div>
       )}
     </Card>
+  );
+}
+
+interface TestConnResult {
+  connected?: boolean;
+  client_id?: string;
+  page_id?: string;
+  page_name?: string;
+  instagram_business_account_id?: string | null;
+  status?: string;
+  facebookMessenger?: string;
+  facebookDetail?: string;
+  instagramDirect?: string;
+  instagramDetail?: string;
+  error?: string;
+}
+
+export function TestConnectionButton({ businessId }: { businessId: string }) {
+  const [state, setState] = useState<{ loading: boolean; res?: TestConnResult; err?: string }>({ loading: false });
+  const run = async () => {
+    setState({ loading: true });
+    try {
+      const r = await fetch(`/api/admin/test-connection?businessId=${businessId}`);
+      const res = (await r.json()) as TestConnResult;
+      setState({ loading: false, res });
+    } catch (e) {
+      setState({ loading: false, err: (e as Error).message });
+    }
+  };
+  const r = state.res;
+  return (
+    <div>
+      <Button type="button" variant="ghost" disabled={state.loading} onClick={run}>
+        {state.loading ? "Testiram…" : "Test connection"}
+      </Button>
+      {state.err && <p className="mt-2 text-sm text-rose-600">{state.err}</p>}
+      {r && (
+        <div className="mt-2 rounded-lg border border-[var(--card-border)] bg-white/60 p-3 text-sm">
+          {r.error && r.connected === false && <p className="text-amber-700">{r.error}</p>}
+          {r.connected !== false && (
+            <div className="grid gap-1">
+              <Row k="Facebook Messenger" v={r.facebookMessenger ?? "—"} tone={r.facebookMessenger === "OK" ? "ok" : "error"} />
+              <Row k="Instagram Direct" v={r.instagramDirect ?? "—"} tone={r.instagramDirect === "OK" ? "ok" : r.instagramDirect === "N/A" ? "warn" : "error"} />
+              <Row k="client_id" v={r.client_id ?? "—"} />
+              <Row k="page_id" v={r.page_id ?? "—"} />
+              <Row k="page_name" v={r.page_name ?? "—"} />
+              <Row k="instagram_business_account_id" v={r.instagram_business_account_id ?? "—"} />
+              {r.facebookMessenger !== "OK" && r.facebookDetail && <Row k="FB detail" v={r.facebookDetail} tone="error" />}
+              {r.instagramDirect === "Error" && r.instagramDetail && <Row k="IG detail" v={r.instagramDetail} tone="error" />}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function MoveConnectionButton({ businessId, pageId, fromClient }: { businessId: string; pageId: string; fromClient: string }) {
+  const [state, formAction, pending] = useActionState<ActionState, FormData>(adminMoveConnectionAction, {});
+  if (state.ok) return <p className="text-sm text-emerald-700">Veza premeštena na ovu firmu ✓</p>;
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+      <p>Stranica <code>{pageId}</code> je već povezana sa drugom firmom ({fromClient || "nepoznato"}).</p>
+      <form action={formAction} className="mt-2">
+        <input type="hidden" name="businessId" value={businessId} />
+        <input type="hidden" name="pageId" value={pageId} />
+        <Button type="submit" variant="danger" disabled={pending}>
+          {pending ? "Premeštam…" : "Premesti vezu na ovu firmu"}
+        </Button>
+      </form>
+      {state.error && <p className="mt-2 text-rose-600">{state.error}</p>}
+    </div>
   );
 }
 

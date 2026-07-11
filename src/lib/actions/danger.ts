@@ -26,7 +26,8 @@ import {
   productVariants,
   products,
   subscriptions,
-  tenantConfigs
+  tenantConfigs,
+  tenants
 } from "../db/schema";
 import { canEdit, requireBusiness } from "../auth/guards";
 
@@ -167,6 +168,7 @@ export async function purgeBusinessData(bid: string): Promise<void> {
   await db().delete(tenantConfigs).where(eq(tenantConfigs.businessId, bidText));
   await db().delete(catalogSnapshots).where(eq(catalogSnapshots.businessId, bidText));
   await db().delete(learningMemories).where(eq(learningMemories.businessId, bidText));
+  await db().delete(tenants).where(eq(tenants.businessId, bid));
   await db().delete(businesses).where(eq(businesses.id, bid));
 }
 

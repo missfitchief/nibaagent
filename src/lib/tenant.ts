@@ -24,3 +24,15 @@ export function clientIdFor(business: { clientId?: string | null; name?: string 
   if (explicit) return explicit;
   return slugify(business.name ?? "") || "tenant";
 }
+
+/**
+ * Validate a post-OAuth return path: must be a same-origin relative path under
+ * /app or /admin (no protocol, no host, no traversal). Anything else → fallback.
+ * Prevents open-redirect and "jumps to another business" after connect.
+ */
+export function safeReturnUrl(raw: string | null | undefined, fallback: string): string {
+  if (!raw) return fallback;
+  if (!/^\/(app|admin)(\/|\?|$)/.test(raw)) return fallback;
+  if (raw.includes("//") || raw.includes("\\") || raw.length > 300) return fallback;
+  return raw;
+}

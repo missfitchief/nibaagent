@@ -44,7 +44,7 @@ import { ProductForm } from "@/app/app/products/form";
 import { ImportPanel } from "@/app/app/products/import-panel";
 import { InviteForm } from "@/app/app/team/form";
 import { SecretsPanel } from "@/app/app/settings/secrets";
-import { AdminBusinessForm, DeleteBusinessForm, ImageRecognitionTest, ManualConnectionForm, SyncN8nButton, TelegramTestButton } from "./forms";
+import { AdminBusinessForm, DeleteBusinessForm, ImageRecognitionTest, ManualConnectionForm, MoveConnectionButton, SyncN8nButton, TelegramTestButton, TestConnectionButton } from "./forms";
 import type { BusinessHours } from "@/lib/hours";
 import { metaConfigCheck } from "@/lib/meta-check";
 import { MetaCheckPanel } from "@/components/meta-check-panel";
@@ -79,6 +79,9 @@ export default async function AdminBusinessDetail({
   const { id } = await params;
   const sp = await searchParams;
   const tab: Tab = TABS.includes(sp.tab as Tab) ? (sp.tab as Tab) : "overview";
+  // Page-already-connected conflict passed back from the OAuth callback.
+  const pageInUse = sp.error === "page_in_use" && typeof sp.pageId === "string" ? sp.pageId : "";
+  const otherClient = typeof sp.otherClient === "string" ? sp.otherClient : "";
   const d = db();
   const [biz] = await d.select().from(businesses).where(eq(businesses.id, id)).limit(1);
   if (!biz) notFound();
@@ -281,7 +284,7 @@ export default async function AdminBusinessDetail({
             <p className="mt-1 text-sm text-[var(--ink-soft)]">Jedno prijavljivanje povezuje stranicu i Instagram ove firme; token se čuva šifrovan samo pod ovom firmom.</p>
             {metaConfigured ? (
               <a
-                href={`/api/meta/start?businessId=${biz.id}`}
+                href={`/api/meta/start?businessId=${biz.id}&returnUrl=${encodeURIComponent(`/admin/businesses/${biz.id}?tab=channels`)}`}
                 className="btn-primary mt-3 inline-flex items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold"
               >
                 ⓕ Poveži Facebook / Instagram
@@ -305,8 +308,22 @@ export default async function AdminBusinessDetail({
 
           {metaCheck && <MetaCheckPanel check={metaCheck} businessId={biz.id} />}
 
+          {pageInUse && (
+            <MoveConnectionButton businessId={biz.id} pageId={pageInUse} fromClient={otherClient} />
+          )}
+
           <Card>
-            <h2 className="font-semibold">Povezani kanali</h2>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="font-semibold">Povezani kanali</h2>
+              <TestConnectionButton businessId={biz.id} />
+            </div>
+            {/* Tenant identity — exactly what n8n reads. */}
+            <div className="mt-2 grid gap-1 rounded-lg border border-[var(--card-border)] bg-slate-50 p-3 text-xs sm:grid-cols-2">
+              <span>Firma: <strong>{biz.name}</strong></span>
+              <span>client_id (tenant id): <code className="rounded bg-white px-1">{biz.clientId || "—"}</code></span>
+              <span>plan: {biz.plan}</span>
+              <span>status: {biz.status}</span>
+            </div>
             {connections.length === 0 ? (
               <p className="mt-2 text-sm text-[var(--ink-soft)]">Ništa još nije povezano. Koristi dugme iznad ili ručni unos ispod.</p>
             ) : (
@@ -317,9 +334,14 @@ export default async function AdminBusinessDetail({
                       <span className="font-medium">{c.pageName || c.pageId}</span>
                       <Badge tone={c.status === "active" || c.status === "connected" ? "ok" : c.status === "error" ? "error" : c.status === "disconnected" ? "neutral" : "warn"}>{c.status}</Badge>
                     </div>
-                    <div className="mt-1 grid gap-1 text-xs text-[var(--ink-soft)]">
-                      <span>page {c.pageId} · IG {c.instagramBusinessAccountId || "—"} · {c.connectionType}</span>
-                      <span>token: {c.encryptedPageAccessToken ? maskToken(c.encryptedPageAccessToken) : "none"}</span>
+                    <div className="mt-1 grid gap-1 text-xs text-[var(--ink-soft)] sm:grid-cols-2">
+                      <span>client_id: {c.clientId}</span>
+                      <span>plan: {c.plan}</span>
+                      <span>page_id: {c.pageId}</span>
+                      <span>page_name: {c.pageName || "—"}</span>
+                      <span>IG business account: {c.instagramBusinessAccountId || "—"}</span>
+                      <span>updated: {c.updatedAt.toISOString().replace("T", " ").slice(0, 16)}</span>
+                      <span>token: {c.encryptedPageAccessToken ? maskToken(c.encryptedPageAccessToken) : "none"} · {c.connectionType}</span>
                     </div>
                   </li>
                 ))}
@@ -327,6 +349,9 @@ export default async function AdminBusinessDetail({
             )}
           </Card>
           <ManualConnectionForm businessId={biz.id} />
+          <Link href="/admin/businesses" className="inline-block text-sm text-sky-600 hover:underline">
+            ← Nazad na master dashboard
+          </Link>
         </>
       )}
 

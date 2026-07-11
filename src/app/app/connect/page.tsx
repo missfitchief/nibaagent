@@ -59,7 +59,7 @@ export default async function ConnectPage({
               Click below and approve access for your Facebook Page and its Instagram account. It takes about a minute.
             </p>
             <a
-              href={`/api/meta/start?businessId=${business.id}`}
+              href={`/api/meta/start?businessId=${business.id}&returnUrl=${encodeURIComponent("/app/connect")}`}
               className="btn-primary inline-flex items-center justify-center gap-2 rounded-xl px-6 py-3 text-sm font-semibold"
             >
               <span aria-hidden>ⓕ</span> Connect via Facebook login
@@ -95,7 +95,7 @@ export default async function ConnectPage({
                 </div>
                 {c.status === "error" && (
                   <a
-                    href={`/api/meta/start?businessId=${business.id}`}
+                    href={`/api/meta/start?businessId=${business.id}&returnUrl=${encodeURIComponent("/app/connect")}`}
                     className="btn-primary mt-3 inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-medium"
                   >
                     Reconnect
@@ -103,7 +103,7 @@ export default async function ConnectPage({
                 )}
               </div>
             ))}
-            <a href={`/api/meta/start?businessId=${business.id}`} className="inline-block text-sm text-sky-600 hover:underline">
+            <a href={`/api/meta/start?businessId=${business.id}&returnUrl=${encodeURIComponent("/app/connect")}`} className="inline-block text-sm text-sky-600 hover:underline">
               Connect another page →
             </a>
           </div>
