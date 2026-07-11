@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { metaConnections } from "@/lib/db/schema";
 import { decryptToken } from "@/lib/crypto";
@@ -41,6 +41,16 @@ export async function GET(request: NextRequest) {
   if (!allowed && session && businessId) allowed = Boolean(await accessForUser(session, businessId));
   if (!allowed) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
+  // Which database is the app actually connected to? (host/name only, never password.)
+  let dbHost = "";
+  try {
+    const u = new URL(process.env.DATABASE_URL || "");
+    dbHost = `${u.hostname}/${u.pathname.replace(/^\//, "")}`;
+  } catch {
+    dbHost = "unknown";
+  }
+  const [{ n: metaCount }] = await db().select({ n: sql<number>`count(*)::int` }).from(metaConnections);
+
   const where = clientId ? eq(metaConnections.clientId, clientId) : businessId ? eq(metaConnections.businessId, businessId) : undefined;
   if (!where) return NextResponse.json({ error: "provide clientId or businessId" }, { status: 400 });
 
@@ -50,7 +60,7 @@ export async function GET(request: NextRequest) {
     .where(and(where))
     .orderBy(desc(metaConnections.updatedAt))
     .limit(1);
-  if (!conn) return NextResponse.json({ ok: false, connected: false, error: "No meta_connections row for this tenant." });
+  if (!conn) return NextResponse.json({ ok: false, connected: false, db_host: dbHost, meta_connections_total: metaCount, error: "No meta_connections row for this tenant." });
 
   // Prefer the plaintext page token (n8n column); fall back to decrypting the mirror.
   let pageToken = conn.pageAccessToken || "";
@@ -81,6 +91,8 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     ok: true,
     connected: true,
+    db_host: dbHost,
+    meta_connections_total: metaCount,
     client_id: conn.clientId,
     business_name: conn.businessName,
     page_id: conn.pageId,

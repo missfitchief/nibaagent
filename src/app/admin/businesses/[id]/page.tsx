@@ -279,6 +279,21 @@ export default async function AdminBusinessDetail({
 
       {tab === "channels" && (
         <>
+          {sp.connected === "1" && (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+              🎉 Uspešno povezano! Konekcija je sačuvana u bazi za ovu firmu (client_id: <code>{biz.clientId}</code>). Klikni Test connection ispod da proveriš Facebook/Instagram.
+            </div>
+          )}
+          {sp.warning === "webhook_subscription_failed" && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+              ⚠️ Stranica i token su sačuvani, ali pretplata na webhook nije uspela. Poruke možda neće stizati dok se ne ponovi.
+            </div>
+          )}
+          {sp.error && sp.error !== "page_in_use" && (
+            <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              Greška pri povezivanju: {decodeURIComponent(String(sp.error))}
+            </div>
+          )}
           <Card>
             <h2 className="font-semibold">Facebook / Instagram</h2>
             <p className="mt-1 text-sm text-[var(--ink-soft)]">Jedno prijavljivanje povezuje stranicu i Instagram ove firme; token se čuva šifrovan samo pod ovom firmom.</p>
