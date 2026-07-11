@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 import { adminManualConnectionAction, adminUpdateBusinessAction } from "@/lib/actions/admin";
-import { telegramTestAction } from "@/lib/actions/tools";
+import { syncN8nRuntimeAction, telegramTestAction } from "@/lib/actions/tools";
 import { deleteBusinessAction } from "@/lib/actions/danger";
 import type { ActionState } from "@/lib/actions/business";
 import { Button, Card, ErrorNote, Input, Label } from "@/components/ui";
@@ -128,6 +128,20 @@ export function TelegramTestButton({ businessId }: { businessId: string }) {
         {pending ? "Sending…" : "Send Telegram test"}
       </Button>
       {state.ok && <span className="text-sm text-emerald-600">Sent ✓</span>}
+      {state.error && <span className="text-sm text-rose-600">{state.error}</span>}
+    </form>
+  );
+}
+
+export function SyncN8nButton({ businessId }: { businessId: string }) {
+  const [state, formAction, pending] = useActionState<{ ok?: boolean; error?: string }, FormData>(syncN8nRuntimeAction, {});
+  return (
+    <form action={formAction} className="inline-flex items-center gap-2">
+      <input type="hidden" name="businessId" value={businessId} />
+      <Button type="submit" variant="ghost" disabled={pending}>
+        {pending ? "Syncing…" : "Sync n8n runtime data"}
+      </Button>
+      {state.ok && <span className="text-sm text-emerald-600">Synced ✓</span>}
       {state.error && <span className="text-sm text-rose-600">{state.error}</span>}
     </form>
   );

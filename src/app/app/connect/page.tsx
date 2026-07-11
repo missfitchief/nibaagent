@@ -16,6 +16,7 @@ export default async function ConnectPage({
   const sp = await searchParams;
   const error = typeof sp.error === "string" ? sp.error : "";
   const connected = typeof sp.connected === "string";
+  const warning = typeof sp.warning === "string" ? sp.warning : "";
 
   const connections = await db()
     .select()
@@ -36,6 +37,12 @@ export default async function ConnectPage({
       {connected && (
         <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
           🎉 Connected! Your AI agent can now see and answer messages (start in Draft mode to review its answers first).
+        </p>
+      )}
+      {warning === "webhook_subscription_failed" && (
+        <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+          ⚠️ Your Page and token were saved, but subscribing the Page to message webhooks did not complete. Messages may not
+          arrive until this is retried — reconnect, or ask support to finish the webhook subscription.
         </p>
       )}
       {error && (
@@ -68,8 +75,14 @@ export default async function ConnectPage({
               <div key={c.id} className="rounded-xl border border-[var(--card-border)] bg-white/60 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="font-medium">{c.pageName || c.pageId}</div>
-                  <Badge tone={c.status === "connected" ? "ok" : c.status === "partial" ? "warn" : c.status === "error" ? "error" : "neutral"}>
-                    {c.status === "connected" ? "Connected" : c.status === "partial" ? "Facebook only" : c.status}
+                  <Badge tone={c.status === "active" || c.status === "connected" ? "ok" : c.status === "partial" ? "warn" : c.status === "error" ? "error" : "neutral"}>
+                    {c.status === "active" || c.status === "connected"
+                      ? c.instagramBusinessAccountId
+                        ? "Connected"
+                        : "Connected (Facebook only)"
+                      : c.status === "partial"
+                        ? "Facebook only"
+                        : c.status}
                   </Badge>
                 </div>
                 <div className="mt-2 grid gap-1.5 text-sm text-[var(--ink-soft)] sm:grid-cols-2">

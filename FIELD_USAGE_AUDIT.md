@@ -103,3 +103,45 @@ All resolve **DB → env → missing** (`platform.ts`). Secrets are AES-GCM encr
 
 - Rate limits (`daily/monthlyMessageLimit`), Google Sheets export, greeting de-dup, reply delay, and full image→product vision are enforced by the **production n8n workflow**, which is the real message loop. The in-app engine (test bot + draft) surfaces these values but does not itself rate-limit, export, or delay. This split is by design: n8n owns the live send path.
 - **WhatsApp notifications**: schema field exists, feature not implemented → marked coming soon.
+
+---
+
+## N8N Runtime Compatibility
+
+The live message loop runs in a shared **n8n** workflow that reads three flat, snake_case tables in the same Neon DB. The app owns the source of truth in its own tables and **syncs** a denormalized, tenant-scoped, timestamped projection into the n8n tables on every relevant change (`src/lib/n8n-sync.ts`, all parameterized upserts). Sync is triggered from: bot-settings save, AI-mode change, business-settings save, product create/edit/delete/toggle, variant add/delete, product import, website ingest, knowledge create/delete, old-chat ingest, old-chats analysis, Meta connect (OAuth + manual), and the admin **"Sync n8n runtime data"** button (`syncN8nRuntimeAction`). Every trigger is best-effort (`safeSync*`): a sync failure is logged and never breaks the user's save.
+
+### `meta_connections` (extended in-place — additive migration `0005`, no drops)
+| n8n field | App source | Notes |
+|---|---|---|
+| `page_access_token` | Page token from OAuth (or manual) | **PLAINTEXT** — n8n reads this. Mirrors `encrypted_page_access_token`. |
+| `instagram_access_token` | = page token when IG linked | PLAINTEXT mirror of `encrypted_instagram_access_token`. |
+| `business_name` | `businesses.name` (server-side) | Loaded from DB, never a request param. |
+| `plan` | `businesses.plan` | For n8n plan gating. |
+| `client_id` / `business_id` | tenant id (from signed OAuth state) | Tenant resolved from signed state + session only. |
+| `status` | `'active'` on success | n8n treats **`active` = connected**; UI treats `active`/`connected` as connected. Webhook-subscribe failure keeps the row and redirects `?connected=1&warning=webhook_subscription_failed`. |
+| `instagram_business_account_id`, `page_id`, `page_name`, `connection_type` | OAuth/manual | `page_id` has a unique index → upsert `ON CONFLICT (page_id)`; a Page owned by another tenant is never reassigned. |
+
+### `tenant_configs` (one row per tenant, key `business_id`)
+| n8n field | App source (table.column) | Tenant-scoped |
+|---|---|---|
+| `client_id`, `business_id`, `business_name`, `plan` | `businesses` | ✅ |
+| `ai_enabled`, `handoff_enabled` | `businesses.ai_enabled` / `.handoff_enabled` | ✅ |
+| `bot_mode` (launch mode) | `businesses.ai_mode` (draft/live/paused) | ✅ |
+| `default_language` | `businesses.default_language` | ✅ |
+| `selected_model` | `businesses.selected_model` | ✅ |
+| `tone`, `persiranje`, `ai_strategy` (AI mode), `ai_provider`, `image_recognition_enabled`, `handoff_threshold`, `unknown_behavior`, `business_hours` | `bot_settings` | ✅ |
+| `telegram_connected` | `businesses.telegram_channel_id` set | ✅ |
+| `meta_connected` | any `meta_connections` row for the tenant | ✅ |
+| `updated_at` | sync time | ✅ |
+
+### `catalog_snapshots` (one row per product, key `business_id`+`product_id`)
+Projects `products` → `title, description, price, currency, stock_status, stock_quantity, sku, category, tags, colors, sizes, url, enabled`. Stale rows (deleted products) are pruned on each sync. Tenant-scoped: a sync for tenant A never reads or writes tenant B's products.
+
+### `learning_memories` (one row per memory, key `business_id`+`source_id`)
+Projects `knowledge_sources` (type → `source_type`: `faq`/`website`/`old_chats`/`knowledge`, `status='active'` → `enabled`) plus synthetic rows from `bot_settings`: `…:instructions` (custom instructions), `…:oldchats` (old-chats summary), `…:faq` (FAQ pairs), `…:tone`. Archived sources become `enabled=false`; removed ones are pruned. Tenant-scoped.
+
+### Image (`image_url`) flow
+n8n forwards `{ client_id, message, image_url }` to `POST /api/agent/reply`. The app resolves the tenant from `client_id` (business id → `meta_connections.client_id` → `page_id`; **never guesses**), loads THAT tenant's config/catalog/memories, and: if `image_url` is present **and** `image_recognition_enabled` is on, it describes the image with the **tenant's own** vision key/model (`describeImageWithTenantKey`) and folds the description into the grounded query; if recognition is **off**, it never calls vision and politely asks for a product name/link. No cross-tenant leakage; the endpoint returns a reply only — never tokens/secrets. Optional `AGENT_WEBHOOK_SECRET` (`x-agent-secret` header) gates the endpoint.
+
+### Verification
+Admin-only `GET /api/admin/meta-connections[?businessId=]` returns a hard allow-list of safe columns (`client_id, business_id, business_name, page_id, page_name, instagram_business_account_id, status, plan, connection_type, connected_at, updated_at`) — **no token/secret column is ever selected**. All logging in the OAuth callback and sync is sanitized (no tokens, app secret, auth code, DATABASE_URL, or encryption key).

@@ -10,6 +10,7 @@ import { requireAdmin } from "../auth/guards";
 import { hashPassword } from "../auth/password";
 import { encryptToken, uuid } from "../crypto";
 import { sanitizeModel, APP_DEFAULT_MODEL } from "../models";
+import { safeSyncAllN8n } from "../n8n-sync";
 import type { ActionState } from "./business";
 
 async function audit(adminUserId: string, action: string, targetId: string, metadata: Record<string, unknown> = {}) {
@@ -126,7 +127,9 @@ export async function adminManualConnectionAction(_prev: ActionState, formData: 
   if (!parsed.success) return { error: "Page ID is required (and tokens must be under 1000 chars)." };
   const data = parsed.data;
 
-  const status = data.pageAccessToken ? (data.instagramBusinessAccountId ? "connected" : "partial") : "partial";
+  // n8n treats status='active' as connected; it reads the PLAINTEXT token columns.
+  const status = data.pageAccessToken ? "active" : "partial";
+  const [biz] = await db().select().from(businesses).where(eq(businesses.id, data.businessId)).limit(1);
   const existing = await db().select().from(metaConnections).where(eq(metaConnections.pageId, data.pageId)).limit(1);
   const values = {
     businessId: data.businessId,
@@ -134,11 +137,13 @@ export async function adminManualConnectionAction(_prev: ActionState, formData: 
     pageId: data.pageId,
     pageName: data.pageName,
     instagramBusinessAccountId: data.instagramBusinessAccountId,
-    status: status as "connected" | "partial",
+    businessName: biz?.name ?? "",
+    plan: biz?.plan ?? "free",
+    status: status as "active" | "partial",
     connectionType: "manual" as const,
     updatedAt: new Date(),
-    ...(data.pageAccessToken ? { encryptedPageAccessToken: encryptToken(data.pageAccessToken) } : {}),
-    ...(data.instagramAccessToken ? { encryptedInstagramAccessToken: encryptToken(data.instagramAccessToken) } : {})
+    ...(data.pageAccessToken ? { encryptedPageAccessToken: encryptToken(data.pageAccessToken), pageAccessToken: data.pageAccessToken } : {}),
+    ...(data.instagramAccessToken ? { encryptedInstagramAccessToken: encryptToken(data.instagramAccessToken), instagramAccessToken: data.instagramAccessToken } : {})
   };
   if (existing[0]) {
     if (existing[0].businessId !== data.businessId) return { error: "This Page ID is already connected to another business." };
@@ -146,6 +151,7 @@ export async function adminManualConnectionAction(_prev: ActionState, formData: 
   } else {
     await db().insert(metaConnections).values(values);
   }
+  await safeSyncAllN8n(data.businessId);
   await audit(admin.userId, "connection.manual", data.businessId, { pageId: data.pageId, hasToken: Boolean(data.pageAccessToken) });
   await db().insert(eventLogs).values({
     businessId: data.businessId,

@@ -5,6 +5,7 @@ import { z } from "zod";
 import { db } from "../db/client";
 import { eventLogs, knowledgeChunks, knowledgeSources } from "../db/schema";
 import { canEdit, requireBusiness } from "../auth/guards";
+import { safeSyncLearningMemories } from "../n8n-sync";
 import { extractFaqCandidates, redactPII } from "../redact";
 
 export interface IngestState {
@@ -99,6 +100,7 @@ export async function ingestTextAction(_prev: IngestState, formData: FormData): 
     metadata: { redactions: counts }
   });
 
+  await safeSyncLearningMemories(business.id);
   revalidatePath("/app/knowledge");
   return { summary: { charsIn, redactions: counts, faqCandidates: faqs.length, chunksStored: capped.length } };
 }

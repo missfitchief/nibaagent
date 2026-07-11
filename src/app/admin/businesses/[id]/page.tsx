@@ -42,7 +42,7 @@ import { ProductForm } from "@/app/app/products/form";
 import { ImportPanel } from "@/app/app/products/import-panel";
 import { InviteForm } from "@/app/app/team/form";
 import { SecretsPanel } from "@/app/app/settings/secrets";
-import { AdminBusinessForm, DeleteBusinessForm, ManualConnectionForm, TelegramTestButton } from "./forms";
+import { AdminBusinessForm, DeleteBusinessForm, ManualConnectionForm, SyncN8nButton, TelegramTestButton } from "./forms";
 import type { BusinessHours } from "@/lib/hours";
 import { metaConfigCheck } from "@/lib/meta-check";
 import { MetaCheckPanel } from "@/components/meta-check-panel";
@@ -305,7 +305,7 @@ export default async function AdminBusinessDetail({
                   <li key={c.id} className="rounded-lg border border-[var(--card-border)] bg-white/60 p-3">
                     <div className="flex items-center justify-between">
                       <span className="font-medium">{c.pageName || c.pageId}</span>
-                      <Badge tone={c.status === "connected" ? "ok" : c.status === "error" ? "error" : c.status === "disconnected" ? "neutral" : "warn"}>{c.status}</Badge>
+                      <Badge tone={c.status === "active" || c.status === "connected" ? "ok" : c.status === "error" ? "error" : c.status === "disconnected" ? "neutral" : "warn"}>{c.status}</Badge>
                     </div>
                     <div className="mt-1 grid gap-1 text-xs text-[var(--ink-soft)]">
                       <span>page {c.pageId} · IG {c.instagramBusinessAccountId || "—"} · {c.connectionType}</span>
@@ -586,7 +586,7 @@ export default async function AdminBusinessDetail({
                   <li key={c.id} className="rounded-lg border border-[var(--card-border)] bg-white/60 p-3">
                     <div className="flex items-center justify-between">
                       <span className="font-medium">{c.pageName || c.pageId}</span>
-                      <Badge tone={c.status === "connected" ? "ok" : c.status === "error" ? "error" : "warn"}>{c.status}</Badge>
+                      <Badge tone={c.status === "active" || c.status === "connected" ? "ok" : c.status === "error" ? "error" : "warn"}>{c.status}</Badge>
                     </div>
                     <div className="mt-1 grid gap-1 text-xs text-[var(--ink-soft)]">
                       <span>page {c.pageId} · IG {c.instagramBusinessAccountId || "—"} · {c.connectionType}</span>
@@ -617,6 +617,7 @@ export default async function AdminBusinessDetail({
               <button className="btn-primary rounded-xl px-4 py-2 text-sm font-medium">Analyze old chats</button>
             </form>
             <TelegramTestButton businessId={biz.id} />
+            <SyncN8nButton businessId={biz.id} />
           </div>
         </div>
         {settings?.oldChatsSummary && (

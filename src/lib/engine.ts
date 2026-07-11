@@ -1,7 +1,7 @@
 import "server-only";
 import { and, eq } from "drizzle-orm";
 import { db } from "./db/client";
-import { botSettings, businesses, knowledgeSources } from "./db/schema";
+import { botSettings, businesses, knowledgeSources, metaConnections } from "./db/schema";
 import { MODEL_COST_PER_1K } from "./plans";
 import { resolveOpenAiKey, resolveAnthropicKey } from "./secrets";
 import { matchProducts, productFacts, variantFacts, variantsFor } from "./products";
@@ -122,6 +122,13 @@ export interface EngineOptions {
   now?: Date;
   /** Whether the inbound message included an image/photo. */
   hasImage?: boolean;
+  /**
+   * URL of an image the customer sent (n8n forwards only the URL — recognition
+   * happens HERE, with the tenant's own key, only if imageRecognitionEnabled).
+   */
+  imageUrl?: string;
+  /** Test seam: override the vision describer so tests never hit the network. */
+  describeImage?: (imageUrl: string) => Promise<string | null>;
 }
 
 export async function runEngine(businessId: string, message: string, opts: EngineOptions = {}): Promise<EngineResult> {
@@ -171,12 +178,23 @@ export async function runEngine(businessId: string, message: string, opts: Engin
     return withSend({ ...base, intent: "off_hours", reply: msg, note: msg ? "outside business hours — off-hours message" : "outside business hours — silent" });
   }
 
+  const hasImage = Boolean(opts.hasImage || opts.imageUrl);
   // 0c. image sent but recognition disabled → ask for a text description instead
-  if (opts.hasImage && settings && !settings.imageRecognitionEnabled) {
+  // (never calls a vision model when the tenant has recognition turned off).
+  if (hasImage && settings && !settings.imageRecognitionEnabled) {
     const reply = lang === "en"
-      ? "Thanks for the photo! Could you also describe the item in words so I can help faster?"
-      : sr(formal, "Hvala na slici! Možete li ukratko opisati artikal rečima da bih brže pomogao?", "Hvala na slici! Možeš li ukratko opisati artikal rečima da bih brže pomogao?");
+      ? "Thanks for the photo! Could you also describe the item in words (name or link) so I can help faster?"
+      : sr(formal, "Hvala na slici! Možete li ukratko opisati artikal rečima (naziv ili link) da bih brže pomogao?", "Hvala na slici! Možeš li ukratko opisati artikal rečima (naziv ili link) da bih brže pomogao?");
     return withSend({ ...base, intent: "no_ai", reply });
+  }
+
+  // 0d. recognition ON + an image URL present → describe it with THIS tenant's
+  // own vision model/key and fold the description into the query, so every
+  // downstream match stays scoped to this tenant's catalog/knowledge.
+  if (opts.imageUrl && settings?.imageRecognitionEnabled) {
+    const describe = opts.describeImage ?? ((url: string) => describeImageWithTenantKey(businessId, url, provider, biz.selectedModel));
+    const desc = await describe(opts.imageUrl).catch(() => null);
+    if (desc) message = `${message ? message + " " : ""}[Slika prikazuje: ${desc}]`.trim();
   }
 
   // 1. handoff words — cheapest, safest
@@ -281,6 +299,120 @@ export async function runEngine(businessId: string, message: string, opts: Engin
     costEstimateEur: Math.round(cost * 10000) / 10000,
     aiCalled: true
   });
+}
+
+const VISION_PROMPT =
+  "Opiši ovu sliku proizvoda u 1-2 rečenice: vrsta artikla, boja, materijal i uočljivi detalji. Bez izmišljanja cene ili dostupnosti.";
+
+/**
+ * Describe an image using the TENANT's own key. Prefers the configured provider;
+ * falls back to the other provider only if that tenant also has that key. Returns
+ * null if neither key is available (caller then asks for a text description).
+ * Never logs token material.
+ */
+export async function describeImageWithTenantKey(
+  businessId: string,
+  imageUrl: string,
+  provider: Provider,
+  businessModel: string | null
+): Promise<string | null> {
+  const openai = async () => {
+    const { key } = await resolveOpenAiKey(businessId);
+    if (!key) return null;
+    const model = businessModel && /^gpt-4o/i.test(businessModel) ? businessModel : "gpt-4o-mini";
+    return openaiVision(key, model, imageUrl);
+  };
+  const anthropic = async () => {
+    const { key } = await resolveAnthropicKey(businessId);
+    if (!key) return null;
+    return anthropicVision(key, imageUrl);
+  };
+  try {
+    if (provider === "anthropic") return (await anthropic()) ?? (await openai());
+    return (await openai()) ?? (await anthropic());
+  } catch {
+    return null;
+  }
+}
+
+async function openaiVision(key: string, model: string, imageUrl: string): Promise<string | null> {
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      model,
+      max_tokens: 160,
+      temperature: 0.2,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: VISION_PROMPT },
+            { type: "image_url", image_url: { url: imageUrl } }
+          ]
+        }
+      ]
+    })
+  });
+  const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }>; error?: { message?: string } };
+  if (!res.ok || data.error) throw new Error(data.error?.message ?? `openai_vision_${res.status}`);
+  return data.choices?.[0]?.message?.content?.trim() || null;
+}
+
+async function anthropicVision(key: string, imageUrl: string): Promise<string | null> {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
+    body: JSON.stringify({
+      model: "claude-3-5-sonnet-latest",
+      max_tokens: 200,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "image", source: { type: "url", url: imageUrl } },
+            { type: "text", text: VISION_PROMPT }
+          ]
+        }
+      ]
+    })
+  });
+  const data = (await res.json()) as { content?: Array<{ text?: string }>; error?: { message?: string } };
+  if (!res.ok || data.error) throw new Error(data.error?.message ?? `anthropic_vision_${res.status}`);
+  return (data.content ?? []).map((c) => c.text ?? "").join("").trim() || null;
+}
+
+/**
+ * Resolve n8n's `client_id` to an internal business id. Accepts (in order): a
+ * business uuid, a meta_connections.client_id, or a meta_connections.page_id.
+ * Returns null if nothing matches — the caller must NOT guess a tenant.
+ */
+export async function resolveTenantByClientId(clientId: string): Promise<string | null> {
+  const id = clientId.trim();
+  if (!id) return null;
+  const d = db();
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    const [biz] = await d.select({ id: businesses.id }).from(businesses).where(eq(businesses.id, id)).limit(1);
+    if (biz) return biz.id;
+  }
+  const [byClient] = await d.select({ businessId: metaConnections.businessId }).from(metaConnections).where(eq(metaConnections.clientId, id)).limit(1);
+  if (byClient) return byClient.businessId;
+  const [byPage] = await d.select({ businessId: metaConnections.businessId }).from(metaConnections).where(eq(metaConnections.pageId, id)).limit(1);
+  return byPage?.businessId ?? null;
+}
+
+/**
+ * Inbound entrypoint for the n8n `{ client_id, message, image_url }` payload.
+ * Resolves the tenant, then runs the normal grounded engine (tenant-scoped).
+ */
+export async function runEngineForInbound(
+  input: { clientId: string; message?: string; imageUrl?: string },
+  opts: EngineOptions = {}
+): Promise<EngineResult & { businessId: string }> {
+  const businessId = await resolveTenantByClientId(input.clientId);
+  if (!businessId) throw new Error("unknown client_id");
+  const result = await runEngine(businessId, input.message ?? "", { ...opts, imageUrl: input.imageUrl });
+  return { ...result, businessId };
 }
 
 async function callOpenAi(key: string, model: string, system: string, message: string): Promise<{ text: string; tokens: number }> {

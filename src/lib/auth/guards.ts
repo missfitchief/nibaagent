@@ -64,6 +64,28 @@ async function resolveAccess(businessId: string): Promise<BusinessAccess | null>
   return null; // not owner, not member, not admin
 }
 
+/**
+ * Non-redirecting access check for route handlers (e.g. the OAuth callback) that
+ * must return a sanitized error instead of a redirect-to-login. Returns the
+ * business + effective role for the given already-authenticated user, or null if
+ * the user has no access (or the business does not exist).
+ */
+export async function accessForUser(user: SessionUser, businessId: string): Promise<BusinessAccess | null> {
+  const rows = await db().select().from(businesses).where(eq(businesses.id, businessId)).limit(1);
+  const business = rows[0];
+  if (!business) return null;
+  if (user.role === "admin") return { user, business, role: "admin" };
+  if (business.ownerUserId === user.userId) return { user, business, role: "owner" };
+  const member = (
+    await db()
+      .select({ role: businessMembers.role })
+      .from(businessMembers)
+      .where(and(eq(businessMembers.businessId, businessId), eq(businessMembers.userId, user.userId)))
+      .limit(1)
+  )[0];
+  return member ? { user, business, role: member.role } : null;
+}
+
 /** Loads the business + caller role, or redirects. Optional minimum role. */
 export async function requireBusiness(businessId: string, minRole: MemberRole = "viewer"): Promise<BusinessAccess> {
   const access = await resolveAccess(businessId);

@@ -6,6 +6,7 @@ import { canEdit, requireBusiness } from "../auth/guards";
 import { db } from "../db/client";
 import { eventLogs } from "../db/schema";
 import { scanShopUrl, importScanned, type ScanResult, type ScannedProduct } from "../importer";
+import { safeSyncCatalog, safeSyncLearningMemories } from "../n8n-sync";
 import { ingestWebsite, type WebsiteIngestOutcome } from "../website";
 import { STOCK_STATUSES } from "../db/schema";
 import type { ImportOutcome } from "../importer";
@@ -91,6 +92,8 @@ export async function importProductsAction(_prev: ImportState, formData: FormDat
     message: `Product import: ${outcome.created} created, ${outcome.updated} updated${website ? `; website: ${website.created + website.updated} pages` : ""}`,
     metadata: { created: outcome.created, updated: outcome.updated }
   });
+  await safeSyncCatalog(businessId);
+  if (website) await safeSyncLearningMemories(businessId);
   revalidatePath(`/app/products`);
   revalidatePath(`/admin/businesses/${businessId}`);
   return { ok: true, outcome, website };
@@ -106,6 +109,7 @@ export async function ingestWebsiteAction(_prev: ImportState, formData: FormData
   if (!canEdit(role)) return { error: "You don't have permission to add knowledge." };
   const website = await ingestWebsite(parsed.data.businessId, parsed.data.url.trim());
   if (!website.created && !website.updated) return { error: "Couldn't read any pages from that website." };
+  await safeSyncLearningMemories(parsed.data.businessId);
   revalidatePath(`/app/knowledge`);
   revalidatePath(`/admin/businesses/${parsed.data.businessId}`);
   return { ok: true, website };

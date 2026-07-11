@@ -6,6 +6,7 @@ import { z } from "zod";
 import { db } from "../db/client";
 import { botSettings, businesses } from "../db/schema";
 import { requireBusiness } from "../auth/guards";
+import { safeSyncTenantConfig, safeSyncLearningMemories } from "../n8n-sync";
 import { sanitizeModel, isProvider } from "../models";
 import type { BusinessHours } from "../hours";
 import type { ActionState } from "./business";
@@ -79,6 +80,9 @@ export async function updateBotSettingsAction(_prev: ActionState, formData: Form
     .update(businesses)
     .set({ tone: d.tone, ...(model ? { selectedModel: model } : {}), updatedAt: new Date() })
     .where(eq(businesses.id, business.id));
+  // Keep n8n runtime config + memories (instructions/FAQ/tone) in sync.
+  await safeSyncTenantConfig(business.id);
+  await safeSyncLearningMemories(business.id);
   revalidatePath("/app/bot");
   return { ok: true };
 }
@@ -96,6 +100,7 @@ export async function setAiModeAction(formData: FormData): Promise<void> {
     .update(businesses)
     .set({ aiMode: parsed.data.aiMode, aiEnabled: parsed.data.aiMode !== "paused", updatedAt: new Date() })
     .where(eq(businesses.id, business.id));
+  await safeSyncTenantConfig(business.id);
   revalidatePath("/app");
   revalidatePath("/app/bot");
 }
@@ -127,6 +132,7 @@ export async function updateBusinessSettingsAction(_prev: ActionState, formData:
       updatedAt: new Date()
     })
     .where(eq(businesses.id, business.id));
+  await safeSyncTenantConfig(business.id);
   revalidatePath("/app/settings");
   return { ok: true };
 }

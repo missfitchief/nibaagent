@@ -6,6 +6,7 @@ import { z } from "zod";
 import { db } from "../db/client";
 import { knowledgeSources } from "../db/schema";
 import { requireBusiness } from "../auth/guards";
+import { safeSyncLearningMemories } from "../n8n-sync";
 import { planDef } from "../plans";
 import type { ActionState } from "./business";
 
@@ -77,6 +78,7 @@ export async function createKnowledgeAction(_prev: ActionState, formData: FormDa
     sourceUrl: parsed.data.sourceUrl,
     status
   });
+  await safeSyncLearningMemories(business.id);
   revalidatePath("/app/knowledge");
   return status === "error" ? { error: "Saved, but the website could not be fetched — edit it or paste content manually." } : { ok: true };
 }
@@ -92,5 +94,6 @@ export async function deleteKnowledgeAction(formData: FormData): Promise<void> {
     .update(knowledgeSources)
     .set({ status: "archived", updatedAt: new Date() })
     .where(and(eq(knowledgeSources.id, parsed.data.id), eq(knowledgeSources.businessId, business.id)));
+  await safeSyncLearningMemories(business.id);
   revalidatePath("/app/knowledge");
 }
