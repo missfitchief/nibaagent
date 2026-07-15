@@ -16,8 +16,10 @@ export default async function ClientDashboard() {
   const remaining = checklist.filter((c) => !c.done);
   const savings = estimateSavings(data.stats.aiRepliesAllTime);
   const plan = planDef(business.plan);
-  const fb = data.connections.some((c) => c.status === "connected");
-  const ig = data.connections.some((c) => c.instagramBusinessAccountId && c.status !== "error");
+  // A saved connection has status 'active' (n8n convention); accept legacy values too.
+  const CONNECTED = ["active", "connected", "partial"];
+  const fb = data.connections.some((c) => CONNECTED.includes(c.status));
+  const ig = data.connections.some((c) => c.instagramBusinessAccountId && c.status !== "error" && c.status !== "disconnected");
 
   return (
     <main className="space-y-5">
