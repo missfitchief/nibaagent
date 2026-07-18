@@ -28,7 +28,11 @@ export async function testBotAction(_prev: TestState, formData: FormData): Promi
   if (!parsed.success) return { error: "Type a test message first." };
   const { business } = await requireBusiness(parsed.data.businessId);
   try {
-    const result = await runEngine(business.id, parsed.data.message);
+    // Synthetic per-business sender: the test bot exercises the SAME conversation
+    // memory as a real customer thread, without touching Meta.
+    const result = await runEngine(business.id, parsed.data.message, {
+      conversation: { channel: "facebook", senderId: `test-bot-${business.id}` }
+    });
     return { result };
   } catch (err) {
     await logEvent(business.id, "error", "ai_reply", `Test run failed: ${(err as Error).message}`);

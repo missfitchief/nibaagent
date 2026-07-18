@@ -377,6 +377,12 @@ export const conversations = pgTable(
     lastMessageAt: timestamp("last_message_at", { withTimezone: true }).notNull().defaultNow(),
     /** Bot stays silent until this time after human takeover (24h rule). */
     humanTakeoverUntil: timestamp("human_takeover_until", { withTimezone: true }),
+    /**
+     * Rolling bot memory for this conversation: lastIntent, productContext,
+     * order data collected so far (name/street/city/postalCode/phone/note) and
+     * which fields are still missing. JSON so the shape can evolve per flow.
+     */
+    conversationState: jsonb("conversation_state").$type<Record<string, unknown>>().notNull().default({}),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
   },
@@ -401,6 +407,10 @@ export const messages = pgTable(
     direction: text("direction", { enum: ["inbound", "outbound"] }).notNull(),
     senderId: text("sender_id").notNull().default(""),
     text: text("text").notNull().default(""),
+    /** Image the customer attached (Meta CDN URL forwarded by n8n), if any. */
+    imageUrl: text("image_url").notNull().default(""),
+    /** Engine intent that produced/answered this message (faq|order|ai|handoff|…). */
+    intent: text("intent").notNull().default(""),
     aiGenerated: boolean("ai_generated").notNull().default(false),
     modelUsed: text("model_used").notNull().default(""),
     tokenUsageEstimate: integer("token_usage_estimate").notNull().default(0),

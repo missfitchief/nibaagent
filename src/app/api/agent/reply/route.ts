@@ -7,12 +7,18 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * Inbound reply endpoint for the shared n8n workflow. n8n forwards only:
- *   { client_id, message, image_url? }
+ * Inbound reply endpoint for the shared n8n workflow. n8n forwards:
+ *   { client_id, message, image_url?, sender_id?, channel?, conversation_id? }
  * The app resolves the tenant from client_id, loads THAT tenant's config /
  * catalog / knowledge, and — if the image URL is present AND the tenant has
  * image recognition enabled — describes the image with the tenant's own vision
  * key. Recognition never runs when disabled; nothing ever crosses tenants.
+ *
+ * Conversation memory: when sender_id (+ optional channel/conversation_id) is
+ * present, the engine keeps one continuous thread per (tenant, channel, sender)
+ * — it saves every message, answers with the recent history in the prompt and
+ * tracks order fields across messages. Without sender_id the call stays
+ * stateless (legacy payload, fully backward compatible).
  *
  * Optional shared-secret gate: set AGENT_WEBHOOK_SECRET and have n8n send it in
  * the `x-agent-secret` header. Never returns tokens or secrets.
@@ -20,7 +26,10 @@ export const dynamic = "force-dynamic";
 const Payload = z.object({
   client_id: z.string().min(1).max(200),
   message: z.string().max(4000).optional().default(""),
-  image_url: z.string().url().max(2000).optional()
+  image_url: z.string().url().max(2000).optional(),
+  sender_id: z.string().min(1).max(200).optional(),
+  channel: z.enum(["facebook", "instagram"]).optional(),
+  conversation_id: z.string().max(200).optional()
 });
 
 export async function POST(request: NextRequest) {
@@ -31,13 +40,21 @@ export async function POST(request: NextRequest) {
 
   const parsed = Payload.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) return NextResponse.json({ error: "invalid payload" }, { status: 400 });
-  const { client_id, message, image_url } = parsed.data;
+  const { client_id, message, image_url, sender_id, channel, conversation_id } = parsed.data;
 
   try {
-    const r = await runEngineForInbound({ clientId: client_id, message, imageUrl: image_url });
+    const r = await runEngineForInbound({
+      clientId: client_id,
+      message,
+      imageUrl: image_url,
+      senderId: sender_id,
+      channel,
+      externalConversationId: conversation_id
+    });
     return NextResponse.json({
       ok: true,
       businessId: r.businessId,
+      conversationId: r.conversationId,
       intent: r.intent,
       reply: r.reply,
       handoff: r.handoffTriggered,

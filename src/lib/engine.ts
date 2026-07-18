@@ -1,7 +1,7 @@
 import "server-only";
 import { and, eq } from "drizzle-orm";
 import { db } from "./db/client";
-import { botSettings, businesses, knowledgeSources, metaConnections } from "./db/schema";
+import { botSettings, businesses, handoffs, knowledgeSources, metaConnections, orders } from "./db/schema";
 import { MODEL_COST_PER_1K } from "./plans";
 import { resolveOpenAiKey, resolveAnthropicKey } from "./secrets";
 import { matchProducts, productFacts, variantFacts, variantsFor } from "./products";
@@ -10,20 +10,47 @@ import { callOpenAiChat, resolveProviderRuntimeConfig, sanitizeAiError } from ".
 import { resolvePlatform } from "./platform";
 import { logEvent } from "./meta";
 import { withinBusinessHours, type BusinessHours } from "./hours";
+import {
+  extractOrderFromTexts,
+  findOrCreateConversation,
+  loadConversationHistory,
+  markHumanTakeover,
+  mergeOrderData,
+  missingOrderFields,
+  orderFieldLabel,
+  parseConversationState,
+  saveConversationMessage,
+  updateConversationState,
+  type Channel,
+  type ConversationKey,
+  type ConversationRow,
+  type ConversationState,
+  type HistoryMessage,
+  type OrderData,
+  type RequiredOrderField
+} from "./conversation-memory";
 
 /**
  * Rules-first reply engine — the AI-credit saver. Order:
- *   0 launch mode (paused = silent) + business hours
+ *   0 launch mode (paused = silent) + business hours + human takeover
  *   1 handoff trigger words   (no AI)
  *   2 known FAQ match         (no AI)      [skipped when strategy = ai_heavy]
- *   3 order intent            (no AI)      [only when strategy = rules_first]
+ *   3 order flow              (no AI)      [only when strategy = rules_first]
  *   4 grounded AI call        (provider + model per business)
  *
- * Every per-business setting below is actually consulted here (see
- * FIELD_USAGE_AUDIT.md). Production message flow runs through the shared n8n
- * workflow which follows the same contract; this engine also powers the in-app
- * test bot and draft mode.
+ * Conversation memory: when the caller identifies the sender (channel +
+ * sender_id), the engine keeps one continuous thread per (business, channel,
+ * sender): it saves every inbound message, loads the recent history into the
+ * AI prompt, tracks collected order fields across messages (asking only for
+ * what is still missing) and remembers the product context. Production message
+ * flow runs through the shared n8n workflow which follows the same contract;
+ * this engine also powers the in-app test bot and draft mode.
  */
+
+/** How many recent messages go into the AI prompt (requirement: 10–20). */
+export const HISTORY_LIMIT = 15;
+/** Human takeover silence window after a handoff trigger (Meta 24h rule). */
+const HUMAN_TAKEOVER_MS = 24 * 60 * 60 * 1000;
 
 export interface EngineResult {
   intent: "handoff" | "faq" | "order" | "ai" | "no_ai" | "unknown" | "off_hours";
@@ -42,6 +69,8 @@ export interface EngineResult {
   shouldSend: boolean;
   /** Seconds the caller should wait before sending (per-business setting). */
   replyDelaySeconds: number;
+  /** Internal conversation id when the sender was identified (memory active). */
+  conversationId?: string;
   note?: string;
 }
 
@@ -99,6 +128,27 @@ function orderCollectionReply(lang: string, formal: boolean, extraPrompt = ""): 
   return extra ? `${base} ${extra}` : base;
 }
 
+/** Ask ONLY for the order fields that are still missing — never the whole form again. */
+function orderMissingReply(lang: string, formal: boolean, missing: RequiredOrderField[]): string {
+  const labels = missing.map((f) => orderFieldLabel(f, lang)).join(", ");
+  if (lang === "en") return `Thanks, noted! I still need: ${labels}.`;
+  return sr(formal, `Hvala, zabeležio sam! Još mi treba: ${labels}.`, `Hvala, zabeležio sam! Još mi treba: ${labels}.`);
+}
+
+/** Confirmation once every required field is known — summarizes instead of asking. */
+function orderConfirmReply(lang: string, formal: boolean, order: OrderData): string {
+  const what = order.productText ? ` (${order.productText})` : "";
+  const note = order.note ? (lang === "en" ? `, note: ${order.note}` : `, napomena: ${order.note}`) : "";
+  if (lang === "en") {
+    return `Thank you, ${order.customerName}! Your order${what} is booked: ${order.streetAndNumber}, ${order.postalCode} ${order.city}, phone ${order.phone}${note}. We will confirm it shortly.`;
+  }
+  return sr(
+    formal,
+    `Hvala, ${order.customerName}! Porudžbina${what} je zabeležena: ${order.streetAndNumber}, ${order.postalCode} ${order.city}, telefon ${order.phone}${note}. Javljamo se uskoro radi potvrde.`,
+    `Hvala, ${order.customerName}! Porudžbina${what} je zabeležena: ${order.streetAndNumber}, ${order.postalCode} ${order.city}, telefon ${order.phone}${note}. Javljamo se uskoro radi potvrde.`
+  );
+}
+
 function unknownReply(behavior: string, lang: string, formal: boolean): { reply: string; handoff: boolean } {
   const en = lang === "en";
   if (behavior === "ask_rephrase") {
@@ -132,6 +182,20 @@ export interface EngineOptions {
   imageUrl?: string;
   /** Test seam: override the vision describer so tests never hit the network. */
   describeImage?: (imageUrl: string) => Promise<string | null>;
+  /**
+   * WHO sent the message (channel + sender id). When present, the engine keeps
+   * one continuous conversation per (business, channel, sender): saves every
+   * message, loads recent history into the AI prompt and tracks order fields
+   * across messages. Omit for stateless calls (legacy n8n payload).
+   */
+  conversation?: ConversationKey;
+  /** Test seam: replace the provider chat call (captures the prompt, no network). */
+  chatCompletion?: (input: {
+    provider: Provider;
+    model: string;
+    system: string;
+    messages: Array<{ role: "user" | "assistant" | "system"; content: string }>;
+  }) => Promise<{ text: string; tokens: number }>;
 }
 
 export async function runEngine(businessId: string, message: string, opts: EngineOptions = {}): Promise<EngineResult> {
@@ -169,16 +233,65 @@ export async function runEngine(businessId: string, message: string, opts: Engin
   // A reply is only actually sent in "live" mode. Draft = prepared but held; paused = nothing.
   const withSend = (r: EngineResult): EngineResult => ({ ...r, shouldSend: launchMode === "live" && r.reply.trim().length > 0 });
 
+  // ── Conversation memory setup ────────────────────────────────────────────
+  // Identify the thread by (business, channel, sender), save the inbound
+  // message immediately, and load recent history for context.
+  let convo: ConversationRow | null = null;
+  let history: HistoryMessage[] = [];
+  let convoState: ConversationState = {};
+  if (opts.conversation?.senderId) {
+    convo = await findOrCreateConversation(businessId, opts.conversation);
+    history = await loadConversationHistory(businessId, convo.id, HISTORY_LIMIT);
+    convoState = parseConversationState(convo.conversationState);
+    await saveConversationMessage({
+      businessId,
+      conversationId: convo.id,
+      channel: opts.conversation.channel,
+      direction: "inbound",
+      senderId: opts.conversation.senderId,
+      text: message,
+      imageUrl: opts.imageUrl
+    });
+  }
+
+  /** Persist the bot reply + roll the conversation state forward. */
+  const persistReply = async (r: EngineResult, patch?: Partial<ConversationState>): Promise<EngineResult> => {
+    if (!convo) return r;
+    if (r.reply.trim()) {
+      await saveConversationMessage({
+        businessId,
+        conversationId: convo.id,
+        channel: convo.channel as Channel,
+        direction: "outbound",
+        text: r.reply,
+        intent: r.intent,
+        aiGenerated: r.aiCalled,
+        modelUsed: r.aiCalled ? r.modelUsed : "",
+        tokenEstimate: r.tokenEstimate,
+        costEstimate: r.costEstimateEur
+      });
+    }
+    await updateConversationState(businessId, convo.id, { lastIntent: r.intent, ...patch });
+    return { ...r, conversationId: convo.id };
+  };
+
+  // Human takeover: staff is handling this thread — bot records but stays silent.
+  if (convo?.humanTakeoverUntil && convo.humanTakeoverUntil > now) {
+    return persistReply({ ...base, intent: "handoff", reply: "", note: "human takeover active — bot silent" });
+  }
+
   // 0a. paused = never reply
   if (launchMode === "paused" || !biz.aiEnabled) {
-    return { ...base, intent: "no_ai", reply: "", note: "AI is paused for this business." };
+    return persistReply({ ...base, intent: "no_ai", reply: "", note: "AI is paused for this business." });
   }
 
   // 0b. business hours — outside hours, optionally send the off-hours note, else stay silent
   const hours = (settings?.businessHours as BusinessHours) ?? { enabled: false };
   if (!withinBusinessHours(hours, now)) {
     const msg = (hours.offHoursMessage ?? "").trim();
-    return withSend({ ...base, intent: "off_hours", reply: msg, note: msg ? "outside business hours — off-hours message" : "outside business hours — silent" });
+    return persistReply(
+      withSend({ ...base, intent: "off_hours", reply: msg, note: msg ? "outside business hours — off-hours message" : "outside business hours — silent" })
+    );
   }
 
   const hasImage = Boolean(opts.hasImage || opts.imageUrl);
@@ -188,7 +301,7 @@ export async function runEngine(businessId: string, message: string, opts: Engin
     const reply = lang === "en"
       ? "Thanks for the photo! Could you also describe the item in words (name or link) so I can help faster?"
       : sr(formal, "Hvala na slici! Možete li ukratko opisati artikal rečima (naziv ili link) da bih brže pomogao?", "Hvala na slici! Možeš li ukratko opisati artikal rečima (naziv ili link) da bih brže pomogao?");
-    return withSend({ ...base, intent: "no_ai", reply });
+    return persistReply(withSend({ ...base, intent: "no_ai", reply }));
   }
 
   // 0d. recognition ON + an image URL present → describe it with THIS tenant's
@@ -212,12 +325,18 @@ export async function runEngine(businessId: string, message: string, opts: Engin
   const handoffWords = (settings?.handoffWords as string[]) ?? [];
   const trigger = biz.handoffEnabled ? detectHandoff(message, handoffWords) : null;
   if (trigger) {
-    return withSend({
-      ...base,
-      intent: "handoff",
-      handoffTriggered: true,
-      reply: lang === "en" ? "One moment — I'm bringing a colleague into the conversation to help you." : sr(formal, "Samo trenutak, uključujem kolegu da Vam pomogne.", "Samo trenutak, uključujem kolegu da ti pomogne.")
-    });
+    if (convo) {
+      await markHumanTakeover(businessId, convo.id, new Date(now.getTime() + HUMAN_TAKEOVER_MS));
+      await d.insert(handoffs).values({ businessId, conversationId: convo.id, triggerWord: trigger, reason: "trigger word in conversation" });
+    }
+    return persistReply(
+      withSend({
+        ...base,
+        intent: "handoff",
+        handoffTriggered: true,
+        reply: lang === "en" ? "One moment — I'm bringing a colleague into the conversation to help you." : sr(formal, "Samo trenutak, uključujem kolegu da Vam pomogne.", "Samo trenutak, uključujem kolegu da ti pomogne.")
+      })
+    );
   }
 
   const faqSources = sources.filter((s) => s.type === "faq").map((s) => ({ q: s.title, a: s.content }));
@@ -227,12 +346,58 @@ export async function runEngine(businessId: string, message: string, opts: Engin
   if (strategy !== "ai_heavy") {
     const faqHit = matchFaq(message, [...faqSources, ...extraFaq]);
     if (faqHit) {
-      return withSend({ ...base, intent: "faq", reply: faqHit.a, knowledgeUsed: [`FAQ: ${faqHit.q}`] });
+      return persistReply(withSend({ ...base, intent: "faq", reply: faqHit.a, knowledgeUsed: [`FAQ: ${faqHit.q}`] }));
     }
   }
 
-  // 3. order intent — deterministic prompt, only in rules_first
-  if (strategy === "rules_first" && settings?.orderCollectionEnabled && detectOrderIntent(message)) {
+  // 3. order flow — with conversation memory the bot collects the fields across
+  // messages, remembers what is already known and asks ONLY for what is missing.
+  const orderWanted = strategy === "rules_first" && settings?.orderCollectionEnabled;
+  if (orderWanted && convo) {
+    const intentNow = detectOrderIntent(message);
+    const prevOrder = convoState.order ?? {};
+    // A fresh explicit order intent after a completed order starts a NEW order.
+    const startFresh = Boolean(prevOrder.completed && intentNow);
+    // Fold extraction over the whole conversation so fields given earlier count.
+    const extracted = extractOrderFromTexts([...history.filter((h) => h.role === "user").map((h) => h.text), message]);
+    const order: OrderData = startFresh
+      ? { ...extracted, active: true }
+      : mergeOrderData(prevOrder, extracted, intentNow ? { active: true } : {});
+
+    if (order.active && !order.completed) {
+      let reply: string;
+      if (!order.customerName && !order.phone && !order.streetAndNumber && !order.city && !order.postalCode) {
+        // Nothing known yet → the classic full collection prompt.
+        reply = orderCollectionReply(lang, formal, settings?.orderPrompt ?? "");
+      } else {
+        const missing = missingOrderFields(order);
+        if (missing.length > 0) {
+          reply = orderMissingReply(lang, formal, missing);
+        } else {
+          // Everything is here → save the order once and confirm with a summary.
+          if (!order.productText && convoState.productContext?.length) order.productText = convoState.productContext.join(", ");
+          const orderText = [order.productText ?? "", order.note ? `napomena: ${order.note}` : ""].filter(Boolean).join(" | ");
+          await d.insert(orders).values({
+            businessId,
+            conversationId: convo.id,
+            customerName: order.customerName ?? "",
+            phone: order.phone ?? "",
+            address: `${order.streetAndNumber ?? ""}, ${order.postalCode ?? ""} ${order.city ?? ""}`.trim(),
+            streetAndNumber: order.streetAndNumber ?? "",
+            city: order.city ?? "",
+            postalCode: order.postalCode ?? "",
+            orderText,
+            internalNote: order.note ?? ""
+          });
+          order.completed = true;
+          await logEvent(businessId, "info", "ai_reply", `Order collected in conversation ${convo.id}`, { conversationId: convo.id });
+          reply = orderConfirmReply(lang, formal, order);
+        }
+      }
+      return persistReply(withSend({ ...base, intent: "order", orderTriggered: true, reply }), { order });
+    }
+  } else if (orderWanted && !convo && detectOrderIntent(message)) {
+    // Legacy stateless path (no sender identified): original one-shot prompt.
     return withSend({ ...base, intent: "order", orderTriggered: true, reply: orderCollectionReply(lang, formal, settings?.orderPrompt ?? "") });
   }
 
@@ -255,7 +420,13 @@ export async function runEngine(businessId: string, message: string, opts: Engin
   const hasGrounding = confidentProduct || Boolean(knowledge) || Boolean(faqList);
   if (!hasGrounding && strategy !== "ai_heavy") {
     const u = unknownReply(settings?.unknownBehavior ?? "offer_handoff", lang, formal);
-    return withSend({ ...base, intent: "unknown", handoffTriggered: u.handoff, reply: u.reply, note: `no grounding (product conf ${productConfidence} < ${threshold})` });
+    if (convo && u.handoff) {
+      await markHumanTakeover(businessId, convo.id, new Date(now.getTime() + HUMAN_TAKEOVER_MS));
+      await d.insert(handoffs).values({ businessId, conversationId: convo.id, triggerWord: "", reason: "unknown question — offer_handoff" });
+    }
+    return persistReply(
+      withSend({ ...base, intent: "unknown", handoffTriggered: u.handoff, reply: u.reply, note: `no grounding (product conf ${productConfidence} < ${threshold})` })
+    );
   }
 
   // Resolve provider key (honors platform usage mode: business_key_required has no fallback).
@@ -276,10 +447,35 @@ export async function runEngine(businessId: string, message: string, opts: Engin
 
   const persInstruction = lang === "en" ? "" : formal ? "Address the customer formally (persiranje: Vi/Vas)." : "Address the customer informally (ti).";
   const summary = settings?.oldChatsSummary ? `Style/knowledge summary: ${settings.oldChatsSummary.slice(0, 800)}` : "";
+
+  // Conversation-memory context: tell the model this is one ongoing thread and
+  // hand it everything we already know, so it never re-asks or contradicts.
+  const knownOrder = convoState.order ?? {};
+  const knownOrderBits = [
+    knownOrder.customerName,
+    knownOrder.streetAndNumber,
+    [knownOrder.postalCode, knownOrder.city].filter(Boolean).join(" "),
+    knownOrder.phone,
+    knownOrder.note ? `note: ${knownOrder.note}` : "",
+    knownOrder.productText ? `ordering: ${knownOrder.productText}` : ""
+  ].filter(Boolean);
+  const ongoingNote = history.length
+    ? "This is ONE ongoing conversation with the same customer — recent messages follow. Answer in the context of the whole conversation (short follow-ups like 'a kad stiže?' refer to the previous topic). NEVER re-ask for details the customer already gave."
+    : "";
+  const knownOrderNote = knownOrderBits.length
+    ? `KNOWN CUSTOMER/ORDER DATA (already provided — do NOT ask again): ${knownOrderBits.join("; ")}`
+    : "";
+  const prevProductsNote = !productData && convoState.productContext?.length
+    ? `Previously discussed products in this conversation: ${convoState.productContext.join(", ")}`
+    : "";
+
   const system = [
     `You are the customer support agent for "${biz.name}" on Facebook/Instagram DM. Reply in ${lang === "en" ? "English" : "the customer's language (Serbian/Bosnian/Croatian)"}.`,
     `Tone: ${settings?.tone ?? biz.tone}. Keep replies short (1-3 sentences), warm and human. Never say you are an AI.`,
     persInstruction,
+    ongoingNote,
+    knownOrderNote,
+    prevProductsNote,
     "NEVER invent prices, stock, delivery terms or product facts. If the answer is not in the data below, say the team will check and reply soon.",
     settings?.customInstructions ? `Business rules: ${settings.customInstructions.slice(0, 800)}` : "",
     summary,
@@ -291,12 +487,20 @@ export async function runEngine(businessId: string, message: string, opts: Engin
     .filter(Boolean)
     .join("\n\n");
 
+  // Recent history (oldest→newest) + the current message as the final turn.
+  const chatMessages: Array<{ role: "user" | "assistant" | "system"; content: string }> = [
+    ...history.map((h) => ({ role: h.role as "user" | "assistant", content: h.text.slice(0, 600) })),
+    { role: "user" as const, content: message.slice(0, 1000) }
+  ];
+
   const model = pickModel({ provider, businessModel: biz.selectedModel, platformDefault: null }) || APP_DEFAULT_MODEL[provider];
   let ai: { text: string; tokens: number };
   try {
-    ai = provider === "anthropic"
-      ? await callAnthropic(resolved.key, model, system, message)
-      : await callOpenAi(resolved.key, model, system, message);
+    ai = opts.chatCompletion
+      ? await opts.chatCompletion({ provider, model, system, messages: chatMessages })
+      : provider === "anthropic"
+        ? await callAnthropic(resolved.key, model, system, chatMessages)
+        : await callOpenAi(resolved.key, model, system, chatMessages);
   } catch (err) {
     // Sanitized, per-business, human-readable — surfaces in the admin logs tab.
     await logEvent(businessId, "error", "ai_reply", `AI reply failed (${provider}/${model}): ${sanitizeAiError((err as Error).message)}`, {
@@ -308,19 +512,23 @@ export async function runEngine(businessId: string, message: string, opts: Engin
   }
 
   const cost = (ai.tokens / 1000) * (MODEL_COST_PER_1K[model] ?? 0.001);
-  return withSend({
-    ...base,
-    intent: "ai",
-    reply: ai.text,
-    knowledgeUsed: [
-      ...topProducts.map((m) => `product: ${m.product.title}`),
-      ...sources.filter((s) => s.type !== "products").slice(0, 6).map((s) => s.title)
-    ],
-    modelUsed: model,
-    tokenEstimate: ai.tokens,
-    costEstimateEur: Math.round(cost * 10000) / 10000,
-    aiCalled: true
-  });
+  return persistReply(
+    withSend({
+      ...base,
+      intent: "ai",
+      reply: ai.text,
+      knowledgeUsed: [
+        ...topProducts.map((m) => `product: ${m.product.title}`),
+        ...sources.filter((s) => s.type !== "products").slice(0, 6).map((s) => s.title)
+      ],
+      modelUsed: model,
+      tokenEstimate: ai.tokens,
+      costEstimateEur: Math.round(cost * 10000) / 10000,
+      aiCalled: true
+    }),
+    // Remember what we talked about: matched products (or keep the previous context).
+    { productContext: topProducts.length ? topProducts.map((m) => m.product.title) : convoState.productContext }
+  );
 }
 
 const VISION_PROMPT =
@@ -368,7 +576,7 @@ export async function describeImageWithTenantKey(
   const r = await visionDescribe(businessId, imageUrl, provider, visionModel);
   if (r.error) {
     // Model not vision-capable / bad image / provider error → clear per-business log, graceful null.
-    await logEvent(businessId, "error", "ai_reply", `Slika nije mogla biti analizirana (${provider}/${visionModel}): ${r.error}`, { provider, visionModel });
+    await logEvent(businessId, "error", "ai_reply", `Slika nije mogla biti analizovana (${provider}/${visionModel}): ${r.error}`, { provider, visionModel });
   }
   return r.text;
 }
@@ -501,27 +709,41 @@ export async function resolveTenantByClientId(clientId: string): Promise<string 
 }
 
 /**
- * Inbound entrypoint for the n8n `{ client_id, message, image_url }` payload.
- * Resolves the tenant, then runs the normal grounded engine (tenant-scoped).
+ * Inbound entrypoint for the n8n payload. Resolves the tenant, then runs the
+ * normal grounded engine (tenant-scoped). When n8n forwards the sender
+ * (sender_id + channel + optional conversation id), conversation memory turns
+ * on: the engine loads this customer's recent history before replying.
  */
 export async function runEngineForInbound(
-  input: { clientId: string; message?: string; imageUrl?: string },
+  input: {
+    clientId: string;
+    message?: string;
+    imageUrl?: string;
+    senderId?: string;
+    channel?: Channel;
+    externalConversationId?: string;
+  },
   opts: EngineOptions = {}
 ): Promise<EngineResult & { businessId: string }> {
   const businessId = await resolveTenantByClientId(input.clientId);
   if (!businessId) throw new Error("unknown client_id");
-  const result = await runEngine(businessId, input.message ?? "", { ...opts, imageUrl: input.imageUrl });
+  const conversation: ConversationKey | undefined = input.senderId
+    ? { channel: input.channel ?? "facebook", senderId: input.senderId, externalConversationId: input.externalConversationId }
+    : undefined;
+  const result = await runEngine(businessId, input.message ?? "", { ...opts, imageUrl: input.imageUrl, conversation });
   return { ...result, businessId };
 }
 
-async function callOpenAi(key: string, model: string, system: string, message: string): Promise<{ text: string; tokens: number }> {
+type ChatTurn = { role: "user" | "assistant" | "system"; content: string };
+
+async function callOpenAi(key: string, model: string, system: string, messages: ChatTurn[]): Promise<{ text: string; tokens: number }> {
   // Adaptive token-param handling (max_tokens vs max_completion_tokens) lives in ai-runtime.
   const r = await callOpenAiChat({
     key,
     model,
     messages: [
       { role: "system", content: system },
-      { role: "user", content: message.slice(0, 1000) }
+      ...messages.map((m) => ({ role: m.role as "user" | "assistant", content: m.content }))
     ],
     maxTokens: 220,
     temperature: 0.4
@@ -529,7 +751,7 @@ async function callOpenAi(key: string, model: string, system: string, message: s
   return { text: r.text, tokens: r.tokens };
 }
 
-async function callAnthropic(key: string, model: string, system: string, message: string): Promise<{ text: string; tokens: number }> {
+async function callAnthropic(key: string, model: string, system: string, messages: ChatTurn[]): Promise<{ text: string; tokens: number }> {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
@@ -537,7 +759,7 @@ async function callAnthropic(key: string, model: string, system: string, message
       model,
       max_tokens: 300,
       system,
-      messages: [{ role: "user", content: message.slice(0, 1000) }]
+      messages: messages.map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content }))
     })
   });
   const data = (await res.json()) as { content?: Array<{ text?: string }>; usage?: { input_tokens?: number; output_tokens?: number }; error?: { message?: string } };
