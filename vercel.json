@@ -1,0 +1,4 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run db:migrate && (npm run seed:admin || echo 'seed skipped: ADMIN_EMAIL/ADMIN_PASSWORD not set') && next build"
+}
