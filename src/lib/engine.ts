@@ -6,7 +6,7 @@ import { MODEL_COST_PER_1K } from "./plans";
 import { resolveOpenAiKey, resolveAnthropicKey } from "./secrets";
 import { matchProducts, productFacts, variantFacts, variantsFor } from "./products";
 import { pickModel, sanitizeModel, APP_DEFAULT_MODEL, APP_DEFAULT_VISION_MODEL, type Provider } from "./models";
-import { callOpenAiChat, resolveProviderRuntimeConfig, sanitizeAiError } from "./ai-runtime";
+import { callOpenAiChat, resolveProviderRuntimeConfig, sanitizeAiError, type OpenAiMessage } from "./ai-runtime";
 import { buildSheetPayload, syncOrderToSheet } from "./sheets-sync";
 import { resolvePlatform } from "./platform";
 import { logEvent } from "./meta";
@@ -527,12 +527,20 @@ export async function runEngine(businessId: string, message: string, opts: Engin
   ];
 
   const model = pickModel({ provider, businessModel: biz.selectedModel, platformDefault: null }) || APP_DEFAULT_MODEL[provider];
+  // A vision-capable answering model gets the customer's photo attached to the
+  // final turn — it identifies the item itself instead of trusting a lossy
+  // text description (this is what made n8n answers accurate).
+  const visionCapable = provider === "openai" && /^(gpt-4o|gpt-4\.1|gpt-5|o[134])/i.test(model);
+  const imageForModel = opts.imageUrl && visionCapable ? opts.imageUrl : undefined;
+  const systemFinal = imageForModel
+    ? `${system}\n\nA customer photo is attached to the last message — trust what YOU see in it (colors, model, design) over any text description of it.`
+    : system;
   const callAi = (key: string) =>
     opts.chatCompletion
-      ? opts.chatCompletion({ provider, model, system, messages: chatMessages })
+      ? opts.chatCompletion({ provider, model, system: systemFinal, messages: chatMessages })
       : provider === "anthropic"
-        ? callAnthropic(key, model, system, chatMessages)
-        : callOpenAi(key, model, system, chatMessages);
+        ? callAnthropic(key, model, systemFinal, chatMessages)
+        : callOpenAi(key, model, systemFinal, chatMessages, imageForModel);
   let ai: { text: string; tokens: number };
   try {
     ai = await callAi(resolved.key);
@@ -791,15 +799,29 @@ export async function runEngineForInbound(
 
 type ChatTurn = { role: "user" | "assistant" | "system"; content: string };
 
-async function callOpenAi(key: string, model: string, system: string, messages: ChatTurn[]): Promise<{ text: string; tokens: number }> {
+async function callOpenAi(key: string, model: string, system: string, messages: ChatTurn[], imageUrl?: string): Promise<{ text: string; tokens: number }> {
   // Adaptive token-param handling (max_tokens vs max_completion_tokens) lives in ai-runtime.
+  // When the customer attached a photo, the answering model SEES it directly
+  // (like the old n8n flow) — no detail is lost in a text-only description.
+  const finalMessages: OpenAiMessage[] = [
+    { role: "system", content: system },
+    ...messages.map((m, i) => {
+      if (imageUrl && i === messages.length - 1 && m.role === "user") {
+        return {
+          role: "user" as const,
+          content: [
+            { type: "text", text: m.content },
+            { type: "image_url", image_url: { url: imageUrl } }
+          ]
+        };
+      }
+      return { role: m.role as "user" | "assistant", content: m.content };
+    })
+  ];
   const r = await callOpenAiChat({
     key,
     model,
-    messages: [
-      { role: "system", content: system },
-      ...messages.map((m) => ({ role: m.role as "user" | "assistant", content: m.content }))
-    ],
+    messages: finalMessages,
     maxTokens: 220,
     temperature: 0.4
   });

@@ -37,6 +37,19 @@ function instagramPayload(igId: string, senderId: string, mid: string, text: str
   };
 }
 
+function messengerImagePayload(pageId: string, senderId: string, mid: string, imageUrl: string, ts = 1000) {
+  return {
+    object: "page",
+    entry: [
+      {
+        id: pageId,
+        time: ts,
+        messaging: [{ sender: { id: senderId }, recipient: { id: pageId }, timestamp: ts, message: { mid, attachments: [{ type: "image", payload: { url: imageUrl } }] } }]
+      }
+    ]
+  };
+}
+
 describe("meta webhook processor", () => {
   let db: TestDb;
   let biz1: string;
@@ -341,6 +354,32 @@ describe("meta webhook processor", () => {
       } finally {
         globalThis.fetch = realFetch;
         await deleteBusinessSecret(biz1, "openai_api_key");
+      }
+    });
+
+    it("image: the answering model receives the photo directly (like n8n did)", async () => {
+      const bodies: Array<{ model: string; messages: Array<{ role: string; content: unknown }> }> = [];
+      const realFetch = globalThis.fetch;
+      globalThis.fetch = (async (_url: string | URL, init?: RequestInit) => {
+        bodies.push(JSON.parse(String(init?.body ?? "{}")));
+        return new Response(JSON.stringify({ choices: [{ message: { content: "Crna kožna torba sa zlatnom kopčom, dostupna je." } }], usage: { total_tokens: 20 } }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }) as typeof fetch;
+      try {
+        const r = await processMetaWebhook(messengerImagePayload(PAGE1, "cust-img", "img-1", "https://cdn.meta/torba.jpg"), fastDeps);
+        expect(r.replied).toBe(1);
+        // Call 1 = vision describe; the LAST call = the answering call.
+        expect(bodies.length).toBeGreaterThanOrEqual(2);
+        const answer = bodies[bodies.length - 1];
+        const lastMsg = answer.messages[answer.messages.length - 1];
+        expect(Array.isArray(lastMsg.content)).toBe(true);
+        const parts = lastMsg.content as Array<{ type: string; image_url?: { url: string } }>;
+        expect(parts.some((p) => p.type === "image_url" && p.image_url?.url === "https://cdn.meta/torba.jpg")).toBe(true);
+        expect(sent[0].text).toContain("torba");
+      } finally {
+        globalThis.fetch = realFetch;
       }
     });
 
