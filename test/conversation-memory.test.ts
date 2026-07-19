@@ -220,4 +220,85 @@ describe("conversation memory", () => {
     expect(missing).not.toContain("customerName");
     expect(missing).not.toContain("phone");
   });
+
+  it("hybrid: a meta question mid-order goes to the AI, which sees the thread + ORDER IN PROGRESS steer", async () => {
+    await db.insert(schema.knowledgeSources).values({
+      businessId: biz1,
+      type: "products",
+      title: "Lampa",
+      content: "Lampa košta 49 KM. Dostava je 10 KM za celu BiH.",
+      status: "active"
+    });
+
+    const sender = { channel: "facebook" as const, senderId: "fb-meta-q" };
+    const calls: SeamCall[] = [];
+    const seam = async (input: { system: string; messages: SeamCall["messages"] }) => {
+      calls.push({ system: input.system, messages: input.messages });
+      return { text: "Pričamo o lampi od 49 KM koju želite da naručite. Treba mi još samo vaše ime i prezime.", tokens: 20 };
+    };
+
+    // 1) explicit order intent → rules answer with the collection prompt
+    const r1 = await runEngine(biz1, "Želim da naručim lampu", { conversation: sender });
+    expect(r1.intent).toBe("order");
+    expect(r1.reply).toContain("ime i prezime");
+
+    // 2) a meta question ("what are we talking about?") must NOT be hijacked by
+    //    the order state machine — the AI answers from the full thread instead.
+    const r2 = await runEngine(biz1, "A o čemu mi to pričamo?", { conversation: sender, chatCompletion: seam });
+    expect(r2.intent).toBe("ai");
+    expect(r2.reply).toContain("lampi");
+    expect(r2.reply).not.toContain("Za porudžbinu");
+    expect(calls.length).toBe(1);
+    expect(calls[0].system).toContain("ORDER IN PROGRESS");
+    expect(calls[0].system).toContain("ime i prezime"); // still-missing list is steered
+    expect(calls[0].messages.some((m) => m.content.includes("lampu"))).toBe(true);
+
+    // 3) the order is still active afterwards — a bare value resumes collection
+    const r3 = await runEngine(biz1, "Petar Petrović", { conversation: sender, chatCompletion: seam });
+    expect(r3.intent).toBe("order");
+    expect(r3.reply).toContain("ulicu i broj");
+    expect(r3.reply).not.toContain("ime i prezime");
+  });
+
+  it("loose extraction: bare values mid-order (no labels) fill name/city+postal/street", async () => {
+    const sender = { channel: "facebook" as const, senderId: "fb-loose" };
+
+    const r1 = await runEngine(biz1, "Želim da naručim", { conversation: sender });
+    expect(r1.intent).toBe("order");
+    expect(r1.reply).toContain("ime i prezime");
+
+    // bare name — no label
+    const r2 = await runEngine(biz1, "Marko Marković", { conversation: sender });
+    expect(r2.intent).toBe("order");
+    expect(r2.reply).toContain("ulicu i broj");
+    expect(r2.reply).not.toContain("ime i prezime");
+
+    // bare city + postal — no label; the 5-digit code must NOT become a street
+    const r3 = await runEngine(biz1, "Sarajevo 71000", { conversation: sender });
+    expect(r3.intent).toBe("order");
+    expect(r3.reply).toContain("ulicu i broj");
+    expect(r3.reply).toContain("broj telefona");
+    expect(r3.reply).not.toContain("grad,");
+
+    // bare street — no label
+    const r4 = await runEngine(biz1, "Ferhadija 12", { conversation: sender });
+    expect(r4.intent).toBe("order");
+    expect(r4.reply).toContain("broj telefona");
+    expect(r4.reply).not.toContain("ulicu");
+
+    // phone completes the order
+    const r5 = await runEngine(biz1, "061 999 888", { conversation: sender });
+    expect(r5.intent).toBe("order");
+    expect(r5.reply).toContain("Marko Marković");
+    expect(r5.reply).toContain("Sarajevo");
+    expect(r5.reply).toContain("Ferhadija 12");
+
+    const orderRows = await db.select().from(schema.orders).where(and(eq(schema.orders.businessId, biz1), eq(schema.orders.conversationId, r1.conversationId!)));
+    expect(orderRows.length).toBe(1);
+    expect(orderRows[0].customerName).toBe("Marko Marković");
+    expect(orderRows[0].city).toBe("Sarajevo");
+    expect(orderRows[0].postalCode).toBe("71000");
+    expect(orderRows[0].streetAndNumber).toBe("Ferhadija 12");
+    expect(orderRows[0].phone).toBe("061 999 888");
+  });
 });

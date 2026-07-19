@@ -12,6 +12,7 @@ import { resolvePlatform } from "./platform";
 import { logEvent } from "./meta";
 import { withinBusinessHours, type BusinessHours } from "./hours";
 import {
+  extractOrderFields,
   extractOrderFromTexts,
   findOrCreateConversation,
   loadConversationHistory,
@@ -86,6 +87,50 @@ const ORDER_PATTERNS = [/naruc/i, /poruc/i, /kupuj/i, /uzimam/i, /zelim (da )?(n
 export function detectOrderIntent(message: string): boolean {
   const n = norm(message);
   return ORDER_PATTERNS.some((p) => p.test(n));
+}
+
+/** Any customer/order data present in an extraction result? */
+function hasAnyOrderField(o: Partial<OrderData>): boolean {
+  return Boolean(o.customerName || o.phone || o.streetAndNumber || o.city || o.postalCode || o.productText || o.note);
+}
+
+/**
+ * Loose per-message extraction for BARE values mid-order (no labels needed):
+ * "Marko Marković", "Sarajevo 71000", "Hrvatske kraljice 12". Only fills fields
+ * that are still missing; strict labeled extraction (extractOrderFields) runs
+ * first and always wins. Heuristics are deliberately conservative.
+ */
+function looseOrderFields(message: string, known: OrderData): Partial<OrderData> {
+  const t = message.trim();
+  const out: Partial<OrderData> = {};
+  if (!t || t.length > 60) return out;
+  const digits = t.replace(/\D/g, "");
+  const hasLetters = /[A-Za-zčćžšđČĆŽŠĐ]/u.test(t);
+
+  // Bare street: letters + a short number ("Hrvatske kraljice 12"). Phones have
+  // 5+ digits and are handled by the strict extractor.
+  if (!known.streetAndNumber && hasLetters && /\d/.test(t) && digits.length > 0 && digits.length <= 4) {
+    const m = t.match(/^([A-Za-zčćžšđČĆŽŠĐ][A-Za-zčćžšđČĆŽŠĐ .'/,-]{1,34}?\d+[a-zA-Z]?)$/u);
+    if (m) {
+      out.streetAndNumber = m[1].trim().replace(/[,\s]+$/, "");
+      return out; // a street line is not a name/city
+    }
+  }
+
+  // Bare name: 2-3 capitalized words, no digits ("Marko Marković").
+  if (!known.customerName && digits.length === 0 && /^[A-ZČĆŽŠĐ][a-zčćžšđ]{1,20}(?:\s+[A-ZČĆŽŠĐ][a-zčćžšđ]{1,20}){1,2}$/u.test(t)) {
+    out.customerName = t;
+    return out;
+  }
+
+  // Bare city: 1-2 capitalized words, optionally with a 5-digit postal code
+  // ("Sarajevo", "Sarajevo 71000"). Two words only count once the name is known
+  // (otherwise it reads as a name).
+  if (!known.city && (digits.length === 0 || digits.length === 5)) {
+    const m = t.match(/^([A-ZČĆŽŠĐ][a-zčćžšđ]{2,}(?:\s+[A-ZČĆŽŠĐ][a-zčćžšđ]{2,})?)\s*(?:\d{5})?$/u);
+    if (m && (m[1].split(/\s+/).length === 1 || known.customerName)) out.city = m[1].trim();
+  }
+  return out;
 }
 
 export function detectHandoff(message: string, words: string[]): string | null {
@@ -364,6 +409,11 @@ export async function runEngine(businessId: string, message: string, opts: Engin
 
   // 3. order flow — with conversation memory the bot collects the fields across
   // messages, remembers what is already known and asks ONLY for what is missing.
+  // HYBRID rule (industry standard for commerce bots): the state machine only
+  // speaks when the CURRENT message is order-relevant (order intent or actual
+  // data). Meta questions / small talk fall through to the AI, which sees the
+  // whole conversation + the known order data — so the bot never loops the same
+  // collection prompt and never "forgets" what the chat is about.
   const orderWanted = strategy === "rules_first" && settings?.orderCollectionEnabled;
   if (orderWanted && convo) {
     const intentNow = detectOrderIntent(message);
@@ -375,11 +425,25 @@ export async function runEngine(businessId: string, message: string, opts: Engin
     const userTexts = history.filter((h) => h.role === "user").map((h) => h.text);
     if (!opts.inboundAlreadySaved) userTexts.push(message);
     const extracted = extractOrderFromTexts(userTexts);
+    // Loose per-message extraction for bare values mid-order ("Marko Marković",
+    // "Sarajevo 71000", "Hrvatske kraljice 12") — labels are NOT required.
+    const loose = prevOrder.active ? looseOrderFields(message, prevOrder) : {};
     const order: OrderData = startFresh
-      ? { ...extracted, active: true }
-      : mergeOrderData(prevOrder, extracted, intentNow ? { active: true } : {});
+      ? { ...mergeOrderData(extracted, loose), active: true }
+      : mergeOrderData(prevOrder, extracted, loose, intentNow ? { active: true } : {});
 
-    if (order.active && !order.completed) {
+    // Did THIS message carry anything order-relevant?
+    const extractedNow = mergeOrderData(extractOrderFields(message), loose);
+    const orderRelevantNow = intentNow || hasAnyOrderField(extractedNow);
+
+    if (order.active && !order.completed && !orderRelevantNow) {
+      // Not an order message — keep the enriched state (loose fields may have
+      // added something) and let the AI answer from the full conversation.
+      await updateConversationState(businessId, convo.id, { order });
+      convoState = { ...convoState, order };
+    }
+
+    if (order.active && !order.completed && orderRelevantNow) {
       let reply: string;
       if (!order.customerName && !order.phone && !order.streetAndNumber && !order.city && !order.postalCode) {
         // Nothing known yet → the classic full collection prompt.
@@ -497,6 +561,13 @@ export async function runEngine(businessId: string, message: string, opts: Engin
   const knownOrderNote = knownOrderBits.length
     ? `KNOWN CUSTOMER/ORDER DATA (already provided — do NOT ask again): ${knownOrderBits.join("; ")}`
     : "";
+  // Free-thinking order steering: when an order is mid-flight, the AI answers
+  // the current message from context FIRST, then naturally guides back to the
+  // missing fields — no rigid templates, no repeated questions.
+  const orderSteerNote =
+    knownOrder.active && !knownOrder.completed
+      ? `ORDER IN PROGRESS — still missing: ${missingOrderFields(knownOrder).map((f) => orderFieldLabel(f, lang)).join(", ") || "nothing"}. Answer the customer's message FIRST (using the conversation above), then naturally guide them to send the missing details — only what is still missing, never the whole form again.`
+      : "";
   const prevProductsNote = !productData && convoState.productContext?.length
     ? `Previously discussed products in this conversation: ${convoState.productContext.join(", ")}`
     : "";
@@ -507,6 +578,7 @@ export async function runEngine(businessId: string, message: string, opts: Engin
     persInstruction,
     ongoingNote,
     knownOrderNote,
+    orderSteerNote,
     prevProductsNote,
     "NEVER invent prices, stock, delivery terms or product facts. If the answer is not in the data below, say the team will check and reply soon.",
     settings?.customInstructions ? `Business rules: ${settings.customInstructions.slice(0, 800)}` : "",
