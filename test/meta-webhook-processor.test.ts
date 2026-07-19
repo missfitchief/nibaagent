@@ -5,6 +5,7 @@ import * as schema from "../src/lib/db/schema";
 import { resetEnvCache } from "../src/lib/env";
 import { encryptToken } from "../src/lib/crypto";
 import { parseMetaWebhookEvents, processMetaWebhook, WEBHOOK_DEBOUNCE_MS } from "../src/lib/meta-webhook-processor";
+import { deleteBusinessSecret, setBusinessSecret } from "../src/lib/secrets";
 import type { Channel } from "../src/lib/conversation-memory";
 
 /**
@@ -311,6 +312,36 @@ describe("meta webhook processor", () => {
       expect(convo?.humanTakeoverUntil).toBeTruthy();
       const rows = await db.select().from(schema.messages).where(eq(schema.messages.conversationId, convo!.id));
       expect(rows.filter((r) => r.direction === "inbound")).toHaveLength(2);
+    });
+
+    it("resilience: broken tenant key falls back to the platform key (bot keeps working)", async () => {
+      await setBusinessSecret(biz1, "openai_api_key", "sk-bad-tenant-key");
+      const calls: string[] = [];
+      const realFetch = globalThis.fetch;
+      globalThis.fetch = (async (_url: string | URL, init?: RequestInit) => {
+        const headers = (init?.headers ?? {}) as Record<string, string>;
+        const auth = headers.Authorization ?? headers.authorization ?? "";
+        calls.push(auth);
+        if (auth.includes("sk-bad-tenant-key")) {
+          return new Response(JSON.stringify({ error: { message: "Incorrect API key" } }), { status: 401 });
+        }
+        return new Response(JSON.stringify({ choices: [{ message: { content: "Odgovor preko platformskog ključa." } }], usage: { total_tokens: 12 } }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }) as typeof fetch;
+      try {
+        const r = await processMetaWebhook(messengerPayload(PAGE1, "cust-retry", "rk-1", "Imate li ovo u plavoj boji?"), fastDeps);
+        expect(r.replied).toBe(1);
+        expect(sent[0].text).toContain("platformskog ključa");
+        // First attempt used the tenant key (401), retry used the platform key.
+        expect(calls).toHaveLength(2);
+        expect(calls[0]).toContain("sk-bad-tenant-key");
+        expect(calls[1]).toContain("sk-test-key");
+      } finally {
+        globalThis.fetch = realFetch;
+        await deleteBusinessSecret(biz1, "openai_api_key");
+      }
     });
 
     it("debounce constant is the owner-approved 10 seconds", () => {

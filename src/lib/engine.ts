@@ -527,21 +527,43 @@ export async function runEngine(businessId: string, message: string, opts: Engin
   ];
 
   const model = pickModel({ provider, businessModel: biz.selectedModel, platformDefault: null }) || APP_DEFAULT_MODEL[provider];
+  const callAi = (key: string) =>
+    opts.chatCompletion
+      ? opts.chatCompletion({ provider, model, system, messages: chatMessages })
+      : provider === "anthropic"
+        ? callAnthropic(key, model, system, chatMessages)
+        : callOpenAi(key, model, system, chatMessages);
   let ai: { text: string; tokens: number };
   try {
-    ai = opts.chatCompletion
-      ? await opts.chatCompletion({ provider, model, system, messages: chatMessages })
-      : provider === "anthropic"
-        ? await callAnthropic(resolved.key, model, system, chatMessages)
-        : await callOpenAi(resolved.key, model, system, chatMessages);
-  } catch (err) {
-    // Sanitized, per-business, human-readable — surfaces in the admin logs tab.
-    await logEvent(businessId, "error", "ai_reply", `AI reply failed (${provider}/${model}): ${sanitizeAiError((err as Error).message)}`, {
-      provider,
-      model,
-      keySource: resolved.source
-    });
-    throw err;
+    ai = await callAi(resolved.key);
+  } catch (firstErr) {
+    // A tenant's own key can be wrong/revoked/out of credit — never let it kill
+    // the bot when a platform key exists: retry ONCE with the platform key.
+    const platformKey =
+      provider === "openai" && resolved.source === "business_key" && !opts.chatCompletion
+        ? (await resolvePlatform("OPENAI_API_KEY")).value
+        : "";
+    if (platformKey && platformKey !== resolved.key) {
+      try {
+        await logEvent(businessId, "warn", "ai_reply", `Biznisov AI ključ ne radi (${sanitizeAiError((firstErr as Error).message)}) — prebačeno na platformski ključ`);
+        ai = await callAi(platformKey);
+      } catch (secondErr) {
+        await logEvent(businessId, "error", "ai_reply", `AI reply failed (${provider}/${model}, platform retry): ${sanitizeAiError((secondErr as Error).message)}`, {
+          provider,
+          model,
+          keySource: "platform_key"
+        });
+        throw secondErr;
+      }
+    } else {
+      // Sanitized, per-business, human-readable — surfaces in the admin logs tab.
+      await logEvent(businessId, "error", "ai_reply", `AI reply failed (${provider}/${model}): ${sanitizeAiError((firstErr as Error).message)}`, {
+        provider,
+        model,
+        keySource: resolved.source
+      });
+      throw firstErr;
+    }
   }
 
   const cost = (ai.tokens / 1000) * (MODEL_COST_PER_1K[model] ?? 0.001);
