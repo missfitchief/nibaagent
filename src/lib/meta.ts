@@ -121,3 +121,42 @@ export async function logEvent(
     console.error(`[eventlog-fallback] ${level} ${area}: ${message}`);
   }
 }
+
+/**
+ * Send a text reply to a Messenger user. Uses the page access token.
+ * https://developers.facebook.com/docs/messenger-platform/send-messages
+ */
+export async function sendMessengerText(pageToken: string, recipientId: string, text: string): Promise<void> {
+  if (!pageToken) throw new Error("missing page access token");
+  const res = await fetch(`${G}/me/messages?access_token=${encodeURIComponent(pageToken)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      messaging_type: "RESPONSE",
+      recipient: { id: recipientId },
+      message: { text: text.slice(0, 2000) }
+    })
+  });
+  const body = (await res.json()) as { error?: { message?: string } };
+  if (!res.ok || body.error) throw new Error(body.error?.message ?? `graph_${res.status}`);
+}
+
+/**
+ * Send a text reply to an Instagram DM user. The IG Business Account id goes in
+ * the URL; the token is the page/IG access token with instagram_manage_messages.
+ * https://developers.facebook.com/docs/instagram-platform/instagram-messaging-api
+ */
+export async function sendInstagramText(token: string, igBusinessAccountId: string, recipientId: string, text: string): Promise<void> {
+  if (!token) throw new Error("missing instagram access token");
+  if (!igBusinessAccountId) throw new Error("missing instagram business account id");
+  const res = await fetch(`${G}/${igBusinessAccountId}/messages?access_token=${encodeURIComponent(token)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      recipient: { id: recipientId },
+      message: { text: text.slice(0, 1000) }
+    })
+  });
+  const body = (await res.json()) as { error?: { message?: string } };
+  if (!res.ok || body.error) throw new Error(body.error?.message ?? `graph_${res.status}`);
+}

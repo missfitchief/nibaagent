@@ -7,6 +7,7 @@ import { resolveOpenAiKey, resolveAnthropicKey } from "./secrets";
 import { matchProducts, productFacts, variantFacts, variantsFor } from "./products";
 import { pickModel, sanitizeModel, APP_DEFAULT_MODEL, APP_DEFAULT_VISION_MODEL, type Provider } from "./models";
 import { callOpenAiChat, resolveProviderRuntimeConfig, sanitizeAiError } from "./ai-runtime";
+import { buildSheetPayload, syncOrderToSheet } from "./sheets-sync";
 import { resolvePlatform } from "./platform";
 import { logEvent } from "./meta";
 import { withinBusinessHours, type BusinessHours } from "./hours";
@@ -189,6 +190,13 @@ export interface EngineOptions {
    * across messages. Omit for stateless calls (legacy n8n payload).
    */
   conversation?: ConversationKey;
+  /**
+   * Set by the Meta webhook processor: it already saved the inbound message
+   * (before the debounce window), so the engine must NOT save it again — and
+   * the current message is already the newest history row, so it is not
+   * appended to the prompt/order-extraction a second time.
+   */
+  inboundAlreadySaved?: boolean;
   /** Test seam: replace the provider chat call (captures the prompt, no network). */
   chatCompletion?: (input: {
     provider: Provider;
@@ -243,15 +251,19 @@ export async function runEngine(businessId: string, message: string, opts: Engin
     convo = await findOrCreateConversation(businessId, opts.conversation);
     history = await loadConversationHistory(businessId, convo.id, HISTORY_LIMIT);
     convoState = parseConversationState(convo.conversationState);
-    await saveConversationMessage({
-      businessId,
-      conversationId: convo.id,
-      channel: opts.conversation.channel,
-      direction: "inbound",
-      senderId: opts.conversation.senderId,
-      text: message,
-      imageUrl: opts.imageUrl
-    });
+    // The webhook processor saves the inbound message itself (before its
+    // debounce window) — saving again here would double every message.
+    if (!opts.inboundAlreadySaved) {
+      await saveConversationMessage({
+        businessId,
+        conversationId: convo.id,
+        channel: opts.conversation.channel,
+        direction: "inbound",
+        senderId: opts.conversation.senderId,
+        text: message,
+        imageUrl: opts.imageUrl
+      });
+    }
   }
 
   /** Persist the bot reply + roll the conversation state forward. */
@@ -359,7 +371,10 @@ export async function runEngine(businessId: string, message: string, opts: Engin
     // A fresh explicit order intent after a completed order starts a NEW order.
     const startFresh = Boolean(prevOrder.completed && intentNow);
     // Fold extraction over the whole conversation so fields given earlier count.
-    const extracted = extractOrderFromTexts([...history.filter((h) => h.role === "user").map((h) => h.text), message]);
+    // (inboundAlreadySaved: the current message is already the newest history row.)
+    const userTexts = history.filter((h) => h.role === "user").map((h) => h.text);
+    if (!opts.inboundAlreadySaved) userTexts.push(message);
+    const extracted = extractOrderFromTexts(userTexts);
     const order: OrderData = startFresh
       ? { ...extracted, active: true }
       : mergeOrderData(prevOrder, extracted, intentNow ? { active: true } : {});
@@ -377,7 +392,7 @@ export async function runEngine(businessId: string, message: string, opts: Engin
           // Everything is here → save the order once and confirm with a summary.
           if (!order.productText && convoState.productContext?.length) order.productText = convoState.productContext.join(", ");
           const orderText = [order.productText ?? "", order.note ? `napomena: ${order.note}` : ""].filter(Boolean).join(" | ");
-          await d.insert(orders).values({
+          const [insertedOrder] = await d.insert(orders).values({
             businessId,
             conversationId: convo.id,
             customerName: order.customerName ?? "",
@@ -388,9 +403,26 @@ export async function runEngine(businessId: string, message: string, opts: Engin
             postalCode: order.postalCode ?? "",
             orderText,
             internalNote: order.note ?? ""
-          });
+          }).returning({ id: orders.id });
           order.completed = true;
           await logEvent(businessId, "info", "ai_reply", `Order collected in conversation ${convo.id}`, { conversationId: convo.id });
+          // Google Sheets sync (per-business Apps Script URL). Never throws —
+          // failures are recorded on the order (sheet_sync_error) + logged.
+          if (biz.googleSheetUrl && insertedOrder?.id) {
+            await syncOrderToSheet({
+              businessId,
+              sheetUrl: biz.googleSheetUrl,
+              payload: buildSheetPayload({
+                orderId: insertedOrder.id,
+                createdAt: new Date(),
+                clientId: biz.clientId,
+                businessName: biz.name,
+                channel: convo.channel,
+                order,
+                orderText
+              })
+            });
+          }
           reply = orderConfirmReply(lang, formal, order);
         }
       }
@@ -488,9 +520,10 @@ export async function runEngine(businessId: string, message: string, opts: Engin
     .join("\n\n");
 
   // Recent history (oldest→newest) + the current message as the final turn.
+  // (inboundAlreadySaved: the current message is already the newest history row.)
   const chatMessages: Array<{ role: "user" | "assistant" | "system"; content: string }> = [
     ...history.map((h) => ({ role: h.role as "user" | "assistant", content: h.text.slice(0, 600) })),
-    { role: "user" as const, content: message.slice(0, 1000) }
+    ...(opts.inboundAlreadySaved ? [] : [{ role: "user" as const, content: message.slice(0, 1000) }])
   ];
 
   const model = pickModel({ provider, businessModel: biz.selectedModel, platformDefault: null }) || APP_DEFAULT_MODEL[provider];

@@ -117,6 +117,8 @@ export async function findOrCreateConversation(businessId: string, key: Conversa
   }
 }
 
+export type MessageRow = typeof messages.$inferSelect;
+
 export async function saveConversationMessage(input: {
   businessId: string;
   conversationId: string;
@@ -130,9 +132,9 @@ export async function saveConversationMessage(input: {
   modelUsed?: string;
   tokenEstimate?: number;
   costEstimate?: number;
-}): Promise<void> {
+}): Promise<MessageRow> {
   const d = db();
-  await d.insert(messages).values({
+  const [row] = await d.insert(messages).values({
     businessId: input.businessId,
     conversationId: input.conversationId,
     channel: input.channel,
@@ -145,11 +147,12 @@ export async function saveConversationMessage(input: {
     modelUsed: input.modelUsed ?? "",
     tokenUsageEstimate: input.tokenEstimate ?? 0,
     costEstimate: String(input.costEstimate ?? 0)
-  });
+  }).returning();
   await d
     .update(conversations)
     .set({ lastMessageAt: new Date(), updatedAt: new Date() })
     .where(and(eq(conversations.id, input.conversationId), eq(conversations.businessId, input.businessId)));
+  return row;
 }
 
 export interface HistoryMessage {
