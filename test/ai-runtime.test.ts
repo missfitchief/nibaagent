@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { eq } from "drizzle-orm";
 import { callOpenAiChat, getTokenParamForModel, sanitizeAiError } from "../src/lib/ai-runtime";
 import { makeDb, seedBusiness, type TestDb } from "./helpers";
 import { setBusinessSecret } from "../src/lib/secrets";
-import { products } from "../src/lib/db/schema";
+import { businesses, products } from "../src/lib/db/schema";
 import { runEngine } from "../src/lib/engine";
 
 interface MockResp {
@@ -128,5 +129,40 @@ describe("bot test run survives the max_tokens/max_completion_tokens error", () 
     expect(r.intent).toBe("ai");
     expect(r.reply).toContain("crvenu haljinu");
     expect(r.aiCalled).toBe(true);
+  });
+});
+
+describe("reasoning models get a much larger token budget", () => {
+  // Regression for a real prod bug: a business set its model to a gpt-5
+  // (reasoning) model. max_completion_tokens covers hidden reasoning tokens
+  // AND the visible reply combined — a budget sized for gpt-4o-mini (a
+  // couple hundred tokens) let the model burn the whole thing on reasoning
+  // and return a 200 with EMPTY content. No error anywhere, customer got
+  // nothing, and it was invisible in the logs.
+  let db: TestDb;
+  beforeEach(async () => {
+    db = await makeDb();
+  });
+
+  it("the answering call requests a high max_completion_tokens for gpt-5", async () => {
+    const { business } = await seedBusiness(db, "ReasoningShop");
+    await setBusinessSecret(business.id, "openai_api_key", "sk-test-key");
+    await db.update(businesses).set({ selectedModel: "gpt-5" }).where(eq(businesses.id, business.id));
+    await db.insert(products).values({ businessId: business.id, title: "Crvena haljina", description: "pamučna", stockStatus: "available" });
+    const { bodies } = mockFetch([{ ok: true, body: { choices: [{ message: { content: "Zdravo!" } }], usage: { total_tokens: 42 } } }]);
+    await runEngine(business.id, "crvena haljina");
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0].max_completion_tokens).toBeGreaterThanOrEqual(1000);
+    expect(bodies[0]).not.toHaveProperty("max_tokens");
+  });
+
+  it("a classic model (gpt-4o-mini) keeps the smaller, cheaper budget", async () => {
+    const { business } = await seedBusiness(db, "ClassicShop");
+    await setBusinessSecret(business.id, "openai_api_key", "sk-test-key");
+    await db.insert(products).values({ businessId: business.id, title: "Crvena haljina", description: "pamučna", stockStatus: "available" });
+    const { bodies } = mockFetch([{ ok: true, body: { choices: [{ message: { content: "Zdravo!" } }], usage: { total_tokens: 42 } } }]);
+    await runEngine(business.id, "crvena haljina");
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0].max_tokens).toBeLessThan(1000);
   });
 });

@@ -6,7 +6,7 @@ import { MODEL_COST_PER_1K } from "./plans";
 import { resolveOpenAiKey, resolveAnthropicKey } from "./secrets";
 import { matchProducts, productFacts, variantFacts, variantsFor } from "./products";
 import { pickModel, sanitizeModel, APP_DEFAULT_MODEL, APP_DEFAULT_VISION_MODEL, type Provider } from "./models";
-import { callOpenAiChat, resolveProviderRuntimeConfig, sanitizeAiError, type OpenAiMessage } from "./ai-runtime";
+import { callOpenAiChat, isReasoningModel, resolveProviderRuntimeConfig, sanitizeAiError, type OpenAiMessage } from "./ai-runtime";
 import { buildSheetPayload, syncOrderToSheet } from "./sheets-sync";
 import { resolvePlatform } from "./platform";
 import { logEvent } from "./meta";
@@ -954,10 +954,13 @@ export async function diagnoseImageRecognition(businessId: string, imageUrl: str
 }
 
 async function openaiVision(key: string, model: string, imageUrl: string): Promise<string | null> {
+  // Reasoning models (o1/o3/o4, gpt-5) burn part of this budget on hidden
+  // reasoning before writing the description — too low and they return
+  // success with empty text. See isReasoningModel() for why.
   const r = await callOpenAiChat({
     key,
     model,
-    maxTokens: 160,
+    maxTokens: isReasoningModel("openai", model) ? 1000 : 160,
     temperature: 0.2,
     messages: [
       {
@@ -1064,11 +1067,16 @@ async function callOpenAi(key: string, model: string, system: string, messages: 
       return { role: m.role as "user" | "assistant", content: m.content };
     })
   ];
+  // Reasoning models (o1/o3/o4, gpt-5) spend part of this budget on hidden
+  // reasoning before writing the reply — 220 tokens is fine for a classic
+  // chat model but can leave a reasoning model with nothing left to write,
+  // returning success with an empty message and silently dropping the
+  // customer's reply. See isReasoningModel() for the full story.
   const r = await callOpenAiChat({
     key,
     model,
     messages: finalMessages,
-    maxTokens: 220,
+    maxTokens: isReasoningModel("openai", model) ? 1500 : 220,
     temperature: 0.4
   });
   return { text: r.text, tokens: r.tokens };

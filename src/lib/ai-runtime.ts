@@ -28,6 +28,18 @@ export function getTokenParamForModel(provider: Provider, model: string): TokenP
   return OPENAI_COMPLETION_TOKEN.test(model.trim()) ? "max_completion_tokens" : "max_tokens";
 }
 
+/**
+ * Reasoning-family models (o1/o3/o4, gpt-5) spend part of `max_completion_tokens`
+ * on hidden reasoning before writing the visible reply — a budget sized for a
+ * classic chat model (a couple hundred tokens) can be entirely consumed by
+ * reasoning, leaving zero for the actual answer. The API returns 200 with an
+ * empty `message.content` in that case — no error, just silence. Callers should
+ * give these models a much larger ceiling.
+ */
+export function isReasoningModel(provider: Provider, model: string): boolean {
+  return provider === "openai" && OPENAI_COMPLETION_TOKEN.test(model.trim());
+}
+
 /** Reasoning models only allow the default temperature (1) — omit it entirely. */
 function modelAllowsCustomTemperature(model: string): boolean {
   return !OPENAI_COMPLETION_TOKEN.test(model.trim());

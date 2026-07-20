@@ -207,7 +207,15 @@ async function processOne(ev: ParsedInbound, deps: ProcessorDeps): Promise<boole
       conversation: conversationKey,
       inboundAlreadySaved: true
     });
-    if (!result.shouldSend || !result.reply.trim()) return false;
+    if (!result.shouldSend || !result.reply.trim()) {
+      // Silent by design in some cases (paused, human takeover, off-hours with
+      // no configured message) — but also how an empty AI completion shows up
+      // (e.g. a reasoning model burning its whole token budget on hidden
+      // reasoning). Log it so "customer got nothing" is diagnosable instead of
+      // leaving zero trace.
+      await logEvent(businessId, "info", "webhook_process", `No reply sent for ${ev.messageId} (intent=${result.intent}, launchMode=${result.launchMode}): ${result.note || "no note"}`);
+      return false;
+    }
     replyToSend = result.reply;
     if (result.replyDelaySeconds > 0) await sleep(result.replyDelaySeconds * 1000);
   } catch (err) {
