@@ -7,7 +7,7 @@ import { db } from "../db/client";
 import { botSettings, conversations, messages } from "../db/schema";
 import { requireAdmin, requireBusiness } from "../auth/guards";
 import { diagnoseImageRecognition, runEngine, type EngineResult, type ImageDiagnosis } from "../engine";
-import { backfillMetaPlaintextTokens, syncAllN8nRuntimeDataForBusiness } from "../n8n-sync";
+import { syncAllN8nRuntimeDataForBusiness } from "../n8n-sync";
 import { safeSyncLearningMemories } from "../n8n-sync";
 import { sendTelegram } from "../notify";
 import { resolveTelegram } from "../secrets";
@@ -44,15 +44,14 @@ const SyncInput = z.object({ businessId: z.string().uuid() });
 
 /**
  * Admin/owner "Sync n8n runtime data" button. Re-projects this tenant's config,
- * catalog and knowledge into the n8n tables and backfills any plaintext token /
- * name / plan columns on existing meta_connections rows. Idempotent + safe.
+ * catalog and knowledge into the n8n tables. Idempotent + safe. (Tokens are
+ * encrypted-only since migration 0011 — no plaintext backfill anymore.)
  */
 export async function syncN8nRuntimeAction(_prev: { ok?: boolean; error?: string }, formData: FormData) {
   const parsed = SyncInput.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: "Invalid request." };
   const { business } = await requireBusiness(parsed.data.businessId, "admin");
   try {
-    await backfillMetaPlaintextTokens(business.id);
     await syncAllN8nRuntimeDataForBusiness(business.id);
     await logEvent(business.id, "info", "n8n_sync", "manual n8n runtime data sync completed");
     revalidatePath(`/admin/businesses/${business.id}`);

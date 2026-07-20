@@ -157,8 +157,9 @@ export async function adminManualConnectionAction(_prev: ActionState, formData: 
     status: status as "active" | "partial",
     connectionType: "manual" as const,
     updatedAt: new Date(),
-    ...(data.pageAccessToken ? { encryptedPageAccessToken: encryptToken(data.pageAccessToken), pageAccessToken: data.pageAccessToken } : {}),
-    ...(data.instagramAccessToken ? { encryptedInstagramAccessToken: encryptToken(data.instagramAccessToken), instagramAccessToken: data.instagramAccessToken } : {})
+    // Tokens are stored ONLY encrypted at rest (no plaintext columns).
+    ...(data.pageAccessToken ? { encryptedPageAccessToken: encryptToken(data.pageAccessToken) } : {}),
+    ...(data.instagramAccessToken ? { encryptedInstagramAccessToken: encryptToken(data.instagramAccessToken) } : {})
   };
   // Fail loud: surface the real DB error instead of a false success.
   try {

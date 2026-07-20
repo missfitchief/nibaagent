@@ -111,10 +111,9 @@ export async function GET(request: NextRequest) {
         businessId,
         clientId,
         pageName: page.name ?? "",
+        // Tokens are stored ONLY encrypted at rest (no plaintext columns).
         encryptedPageAccessToken: encrypted,
         encryptedInstagramAccessToken: encrypted,
-        pageAccessToken: page.access_token,
-        instagramAccessToken: igId ? page.access_token : "",
         instagramBusinessAccountId: igId,
         businessName: business.name,
         plan: business.plan,

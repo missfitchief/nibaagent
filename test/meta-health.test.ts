@@ -23,7 +23,7 @@ async function seedConnection(businessId: string, opts: { pageId: string; status
     pageId: opts.pageId,
     status: opts.status as "active",
     connectionType: "oauth",
-    ...(opts.token ? { encryptedPageAccessToken: encryptToken(opts.token), pageAccessToken: opts.token } : {})
+    ...(opts.token ? { encryptedPageAccessToken: encryptToken(opts.token) } : {})
   });
 }
 

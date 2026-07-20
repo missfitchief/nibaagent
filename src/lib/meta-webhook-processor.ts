@@ -197,10 +197,11 @@ async function processOne(ev: ParsedInbound, deps: ProcessorDeps): Promise<boole
   }
 
   // 6. send through Meta with THIS tenant's own token (decrypted at runtime).
+  // Tokens are stored ONLY encrypted at rest — no plaintext columns remain.
   const token =
     ev.channel === "instagram"
-      ? decryptToken(conn.encryptedInstagramAccessToken) || conn.instagramAccessToken || decryptToken(conn.encryptedPageAccessToken) || conn.pageAccessToken
-      : decryptToken(conn.encryptedPageAccessToken) || conn.pageAccessToken;
+      ? decryptToken(conn.encryptedInstagramAccessToken) || decryptToken(conn.encryptedPageAccessToken)
+      : decryptToken(conn.encryptedPageAccessToken);
   try {
     await sendText({ channel: ev.channel, token, igBusinessAccountId: conn.instagramBusinessAccountId, recipientId: ev.senderId, text: replyToSend });
   } catch (err) {

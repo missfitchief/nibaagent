@@ -46,11 +46,11 @@ const defaultFetchMe: MetaHealthFetch = async (token) => {
   }
 };
 
-function pageToken(conn: { encryptedPageAccessToken: string; pageAccessToken: string }): string {
+function pageToken(conn: { encryptedPageAccessToken: string }): string {
   try {
-    return decryptToken(conn.encryptedPageAccessToken) || conn.pageAccessToken;
+    return decryptToken(conn.encryptedPageAccessToken);
   } catch {
-    return conn.pageAccessToken;
+    return "";
   }
 }
 

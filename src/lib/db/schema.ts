@@ -242,14 +242,8 @@ export const metaConnections = pgTable(
     encryptedPageAccessToken: text("encrypted_page_access_token").notNull().default(""),
     instagramBusinessAccountId: text("instagram_business_account_id").notNull().default(""),
     encryptedInstagramAccessToken: text("encrypted_instagram_access_token").notNull().default(""),
-    /**
-     * n8n-runtime compatibility columns. The shared n8n workflow reads the page
-     * token in PLAINTEXT and treats status='active' as "connected". These mirror
-     * the encrypted columns above so the app keeps tokens encrypted at rest while
-     * still handing n8n what it needs. Never surfaced in the UI or any API.
-     */
-    pageAccessToken: text("page_access_token").notNull().default(""),
-    instagramAccessToken: text("instagram_access_token").notNull().default(""),
+    // Tokens live ONLY in the encrypted columns above (AES-256-GCM at rest,
+    // decrypted at runtime). Plaintext columns were dropped in migration 0011.
     businessName: text("business_name").notNull().default(""),
     plan: text("plan").notNull().default("free"),
     status: text("status", { enum: ["active", "connected", "partial", "error", "disconnected"] })

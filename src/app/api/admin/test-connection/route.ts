@@ -62,9 +62,9 @@ export async function GET(request: NextRequest) {
     .limit(1);
   if (!conn) return NextResponse.json({ ok: false, connected: false, db_host: dbHost, meta_connections_total: metaCount, error: "No meta_connections row for this tenant." });
 
-  // Prefer the plaintext page token (n8n column); fall back to decrypting the mirror.
-  let pageToken = conn.pageAccessToken || "";
-  if (!pageToken && conn.encryptedPageAccessToken) {
+  // Tokens live ONLY in the encrypted columns — decrypt at runtime.
+  let pageToken = "";
+  if (conn.encryptedPageAccessToken) {
     try {
       pageToken = decryptToken(conn.encryptedPageAccessToken);
     } catch {

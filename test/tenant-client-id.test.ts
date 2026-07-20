@@ -18,7 +18,6 @@ async function connect(businessId: string, clientId: string, businessName: strin
     clientId,
     pageId: `page-${businessId.slice(0, 8)}`,
     pageName: "Page",
-    pageAccessToken: "tok",
     businessName,
     plan: "free",
     status: "active",

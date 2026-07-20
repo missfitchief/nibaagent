@@ -12,7 +12,6 @@ import {
   tenantConfigs,
   tenants
 } from "./db/schema";
-import { decryptToken } from "./crypto";
 import { clientIdFor } from "./tenant";
 import { logEvent } from "./meta";
 
@@ -154,38 +153,6 @@ export async function syncLearningMemoriesForBusiness(businessId: string): Promi
       ? and(eq(learningMemories.businessId, businessId), notInArray(learningMemories.sourceId, keep))
       : eq(learningMemories.businessId, businessId)
   );
-}
-
-/**
- * Fill the plaintext token / business_name / plan columns for existing rows that
- * predate this migration (decrypting what's stored). Never logs token material.
- */
-export async function backfillMetaPlaintextTokens(businessId: string): Promise<void> {
-  const d = db();
-  const [biz] = await d.select().from(businesses).where(eq(businesses.id, businessId)).limit(1);
-  const rows = await d.select().from(metaConnections).where(eq(metaConnections.businessId, businessId));
-  for (const r of rows) {
-    const patch: Partial<typeof metaConnections.$inferInsert> = {};
-    if (!r.pageAccessToken && r.encryptedPageAccessToken) {
-      try {
-        patch.pageAccessToken = decryptToken(r.encryptedPageAccessToken);
-      } catch {
-        /* skip undecryptable */
-      }
-    }
-    if (!r.instagramAccessToken && r.encryptedInstagramAccessToken) {
-      try {
-        patch.instagramAccessToken = decryptToken(r.encryptedInstagramAccessToken);
-      } catch {
-        /* skip */
-      }
-    }
-    if (biz && !r.businessName) patch.businessName = biz.name;
-    if (biz && (!r.plan || r.plan === "free")) patch.plan = biz.plan;
-    if (Object.keys(patch).length) {
-      await d.update(metaConnections).set(patch).where(eq(metaConnections.id, r.id));
-    }
-  }
 }
 
 /** Business → tenants registry (n8n looks a tenant up by client_id). Upsert by business_id. */
