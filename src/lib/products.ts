@@ -35,6 +35,22 @@ function tokenMatches(a: string, b: string): boolean {
   return a === b || commonPrefixLen(a, b) >= STEM_MIN_LEN;
 }
 
+/** Strips scheme/trailing-slash/query/fragment/case so link variants compare equal. */
+function normalizeUrl(u: string): string {
+  return u
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .split(/[?#]/)[0]
+    .replace(/\/+$/, "");
+}
+
+function extractUrls(message: string): string[] {
+  const found = message.match(/https?:\/\/\S+/gi) ?? [];
+  return found.map(normalizeUrl);
+}
+
 export interface ProductMatch {
   product: ProductRow;
   score: number;
@@ -44,10 +60,15 @@ export interface ProductMatch {
  * Match a customer message against ONE business's enabled products. Returns
  * scored candidates, best first. Business-scoped by construction — the query
  * filters on businessId, so it can never surface another tenant's products.
+ *
+ * A link straight to the product's own page (imported url) is treated as an
+ * exact identification and outranks every other signal — a customer pasting
+ * their product link should never get a different item's price.
  */
 export async function matchProducts(businessId: string, message: string): Promise<ProductMatch[]> {
   const msg = tokens(message);
-  if (!msg.size) return [];
+  const linkedUrls = extractUrls(message);
+  if (!msg.size && !linkedUrls.length) return [];
   const msgTokens = [...msg];
   const rows = await db()
     .select()
@@ -56,11 +77,11 @@ export async function matchProducts(businessId: string, message: string): Promis
   const scored: ProductMatch[] = [];
   for (const p of rows) {
     const nameTokens = [...tokens(p.title)];
-    if (!nameTokens.length) continue;
     const nameHits = nameTokens.filter((t) => msgTokens.some((mt) => tokenMatches(mt, t))).length;
     let score = nameHits * 2;
     if (p.sku && msg.has(p.sku.toLowerCase())) score += 4;
     for (const tag of (p.tags as string[]) ?? []) if (msg.has(String(tag).toLowerCase())) score += 0.5;
+    if (p.url && linkedUrls.includes(normalizeUrl(p.url))) score += 100;
     if (score > 0) scored.push({ product: p, score });
   }
   return scored.sort((a, b) => b.score - a.score);

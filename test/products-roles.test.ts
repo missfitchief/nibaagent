@@ -79,6 +79,53 @@ describe("products: noun-case matching (sr/bs/hr)", () => {
   });
 });
 
+describe("products: link matching", () => {
+  // A customer who pastes their own product link should never get quoted a
+  // different item's price — an exact URL match must outrank every other signal.
+  let db: TestDb;
+  let D: Awaited<ReturnType<typeof seedBusiness>>;
+
+  beforeAll(async () => {
+    db = await makeDb();
+    D = await seedBusiness(db, "Delta");
+    await createProduct(D.business.id, {
+      title: "Soul - Magnetna narukvica za parove",
+      price: 33.9,
+      currency: "BAM",
+      stockStatus: "available",
+      url: "https://starlightnakit.ba/products/soul-magnetna-narukvica-za-parove"
+    });
+    await createProduct(D.business.id, {
+      title: "Moja Prica - Personalizovana narukvica",
+      price: 37.9,
+      currency: "BAM",
+      stockStatus: "available",
+      url: "https://starlightnakit.ba/products/moja-prica-personalizovana-narukvica"
+    });
+  });
+
+  it("an exact product link outranks a generic word match", async () => {
+    const hits = await matchProducts(
+      D.business.id,
+      "koliko kosta narukvica https://starlightnakit.ba/products/moja-prica-personalizovana-narukvica"
+    );
+    expect(hits[0]?.product.title).toBe("Moja Prica - Personalizovana narukvica");
+  });
+
+  it("matches the link regardless of protocol, www, trailing slash or tracking params", async () => {
+    const hits = await matchProducts(
+      D.business.id,
+      "www.starlightnakit.ba/products/soul-magnetna-narukvica-za-parove/?utm_source=ig"
+    );
+    expect(hits[0]?.product.title).toBe("Soul - Magnetna narukvica za parove");
+  });
+
+  it("a link to an unknown page falls back to normal word matching, never crashes", async () => {
+    const hits = await matchProducts(D.business.id, "vidi ovo https://starlightnakit.ba/blog/nesto-drugo");
+    expect(hits.every((m) => m.score < 100)).toBe(true);
+  });
+});
+
 describe("member roles + secret access", () => {
   // Role logic mirrors lib/auth/guards.ts canManageSecrets / canEdit.
   const FULL = ["owner", "admin"];
