@@ -6,6 +6,7 @@ import { resetEnvCache } from "../src/lib/env";
 import { encryptToken } from "../src/lib/crypto";
 import { parseMetaWebhookEvents, processMetaWebhook, WEBHOOK_DEBOUNCE_MS } from "../src/lib/meta-webhook-processor";
 import { deleteBusinessSecret, setBusinessSecret } from "../src/lib/secrets";
+import { createProduct } from "../src/lib/products";
 import type { Channel } from "../src/lib/conversation-memory";
 
 /**
@@ -45,6 +46,49 @@ function messengerImagePayload(pageId: string, senderId: string, mid: string, im
         id: pageId,
         time: ts,
         messaging: [{ sender: { id: senderId }, recipient: { id: pageId }, timestamp: ts, message: { mid, attachments: [{ type: "image", payload: { url: imageUrl } }] } }]
+      }
+    ]
+  };
+}
+
+/** Click-to-Messenger ad-open event: no typed message yet, just the referral. */
+function adOpenPayload(pageId: string, senderId: string, adTitle: string, ts = 1000) {
+  return {
+    object: "page",
+    entry: [
+      {
+        id: pageId,
+        time: ts,
+        messaging: [
+          {
+            sender: { id: senderId },
+            recipient: { id: pageId },
+            timestamp: ts,
+            referral: { source: "ADS", type: "OPEN_THREAD", ad_id: "ad-1", ads_context_data: { ad_title: adTitle } }
+          }
+        ]
+      }
+    ]
+  };
+}
+
+/** Customer typed something AND the thread came from an ad (referral rides along the message). */
+function messengerPayloadWithReferral(pageId: string, senderId: string, mid: string, text: string, adTitle: string, ts = 1000) {
+  return {
+    object: "page",
+    entry: [
+      {
+        id: pageId,
+        time: ts,
+        messaging: [
+          {
+            sender: { id: senderId },
+            recipient: { id: pageId },
+            timestamp: ts,
+            message: { mid, text },
+            referral: { source: "ADS", type: "OPEN_THREAD", ad_id: "ad-2", ads_context_data: { ad_title: adTitle } }
+          }
+        ]
       }
     ]
   };
@@ -126,6 +170,18 @@ describe("meta webhook processor", () => {
     it("marks instagram payloads as instagram channel", () => {
       const events = parseMetaWebhookEvents(instagramPayload("ig-9", "u9", "mid-9", "cao"));
       expect(events[0]).toMatchObject({ channel: "instagram", pageId: "ig-9", senderId: "u9" });
+    });
+
+    it("ad-open event with no typed message still produces an event, carrying the ad title", () => {
+      const events = parseMetaWebhookEvents(adOpenPayload("p1", "u-ad", "Soul - Magnetna narukvica za parove"));
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({ text: "", adTitle: "Soul - Magnetna narukvica za parove" });
+    });
+
+    it("a typed message that rode in on an ad referral keeps both the text and the ad title", () => {
+      const events = parseMetaWebhookEvents(messengerPayloadWithReferral("p1", "u-ad2", "m-ad", "koliko kosta?", "Moja Prica - Personalizovana narukvica"));
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({ text: "koliko kosta?", adTitle: "Moja Prica - Personalizovana narukvica" });
     });
   });
 
@@ -308,6 +364,30 @@ describe("meta webhook processor", () => {
       expect(r2.replied).toBe(0);
       expect(sent).toHaveLength(0);
       await db.update(schema.businesses).set({ aiMode: "live" }).where(eq(schema.businesses.id, biz2));
+    });
+
+    it("ad click: no text yet, still replies, grounded in the exact advertised product", async () => {
+      await createProduct(biz1, {
+        title: "Soul - Magnetna narukvica za parove",
+        price: 33.9,
+        currency: "BAM",
+        stockStatus: "available"
+      });
+      const systems: string[] = [];
+      const adDeps = {
+        ...fastDeps,
+        engineOptions: {
+          chatCompletion: (input: { system: string }) => {
+            systems.push(input.system);
+            return Promise.resolve({ text: "Zdravo! Soul narukvica za parove je 33.90 KM, dostupna je.", tokens: 12 });
+          }
+        }
+      };
+      const r = await processMetaWebhook(adOpenPayload(PAGE1, "cust-ad", "Soul - Magnetna narukvica za parove"), adDeps);
+      expect(r.replied).toBe(1);
+      expect(sent[0].text).toContain("33.90");
+      expect(systems[0]).toMatch(/clicked an ad for "Soul - Magnetna narukvica za parove"/);
+      expect(systems[0]).toContain("33.9");
     });
 
     it("handoff: trigger word → human takeover, bot goes silent", async () => {

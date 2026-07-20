@@ -257,6 +257,13 @@ export interface EngineOptions {
   /** Test seam: override the vision describer so tests never hit the network. */
   describeImage?: (imageUrl: string) => Promise<string | null>;
   /**
+   * Set when this thread was opened (or this message sent) by clicking a
+   * Click-to-Messenger/Instagram ad — the ad's own title/headline. Used to
+   * identify the exact product being advertised so the first reply speaks to
+   * it directly instead of a generic greeting.
+   */
+  adTitle?: string;
+  /**
    * WHO sent the message (channel + sender id). When present, the engine keeps
    * one continuous conversation per (business, channel, sender): saves every
    * message, loads recent history into the AI prompt and tracks order fields
@@ -433,6 +440,16 @@ export async function runEngine(businessId: string, message: string, opts: Engin
     } else if (imageDataUrl) {
       await logEvent(businessId, "warn", "ai_reply", "Slika nije mogla biti analizirana — nastavljam bez prepoznavanja slike");
     }
+  }
+
+  // 0e. thread opened by clicking an ad → identify the exact advertised
+  // product (Meta gives us the ad's own title, not a product id) and fold it
+  // into the query so it grounds the first reply, even if the customer typed
+  // nothing yet (ad-open events can arrive with empty text).
+  const adTitle = (opts.adTitle ?? "").trim();
+  if (adTitle) {
+    await logEvent(businessId, "info", "ai_reply", `Razgovor otvoren klikom na reklamu: "${adTitle}"`, { adTitle });
+    message = `${message ? message + " " : ""}[Reklama: ${adTitle}]`.trim();
   }
 
   // 1. handoff words — cheapest, safest
@@ -684,6 +701,16 @@ export async function runEngine(businessId: string, message: string, opts: Engin
   const prevProductsNote = !productData && convoState.productContext?.length
     ? `Previously discussed products in this conversation: ${convoState.productContext.join(", ")}`
     : "";
+  // history always includes the current inbound message by the time we get
+  // here (the webhook processor saves it before calling the engine) — "first
+  // message in the thread" means no ASSISTANT turn has happened yet, not an
+  // empty history array.
+  const adNote =
+    adTitle && !history.some((h) => h.role === "assistant")
+      ? productData
+        ? `This conversation just started because the customer clicked an ad for "${adTitle}" — that product is in PRODUCTS below. Greet them warmly and speak to THAT item directly (price/stock/key detail) rather than a generic hello, unless their own message clearly asks something else.`
+        : `This conversation just started because the customer clicked an ad for "${adTitle}", but that exact item wasn't found in the catalog data below — greet them warmly, reference the ad by name, and ask what they'd like to know instead of guessing at facts.`
+      : "";
 
   const system = [
     `You are the customer support agent for "${biz.name}" on Facebook/Instagram DM. Reply in ${lang === "en" ? "English" : "the customer's language (Serbian/Bosnian/Croatian)"}.`,
@@ -693,6 +720,7 @@ export async function runEngine(businessId: string, message: string, opts: Engin
     knownOrderNote,
     orderSteerNote,
     prevProductsNote,
+    adNote,
     "NEVER invent prices, stock, delivery terms or product facts. If the answer is not in the data below, say the team will check and reply soon.",
     settings?.customInstructions ? `Business rules: ${settings.customInstructions.slice(0, 800)}` : "",
     summary,
