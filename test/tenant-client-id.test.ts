@@ -1,10 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { makeDb, seedBusiness, type TestDb } from "./helpers";
-import { businesses, catalogSnapshots, learningMemories, metaConnections, products, tenantConfigs } from "../src/lib/db/schema";
+import { businesses, metaConnections } from "../src/lib/db/schema";
 import { clientIdFor, slugify } from "../src/lib/tenant";
 import { resolveTenantByClientId } from "../src/lib/engine";
-import { syncCatalogSnapshotForBusiness, syncLearningMemoriesForBusiness, syncTenantConfigForBusiness } from "../src/lib/n8n-sync";
 
 let db: TestDb;
 beforeEach(async () => {
@@ -54,22 +53,6 @@ describe("tenant client id", () => {
     await db.update(businesses).set({ clientId: "starlight" }).where(eq(businesses.id, business.id));
     const [biz] = await db.select().from(businesses).where(eq(businesses.id, business.id));
     expect(clientIdFor(biz)).toBe("starlight");
-  });
-
-  it("n8n-sync writes the tenant client_id (not the UUID) to all three n8n tables", async () => {
-    const { business } = await seedBusiness(db, "StarLight");
-    await db.insert(products).values({ businessId: business.id, title: "P", stockStatus: "available" });
-    await syncTenantConfigForBusiness(business.id);
-    await syncCatalogSnapshotForBusiness(business.id);
-    await syncLearningMemoriesForBusiness(business.id);
-    const [cfg] = await db.select().from(tenantConfigs).where(eq(tenantConfigs.businessId, business.id));
-    const [snap] = await db.select().from(catalogSnapshots).where(eq(catalogSnapshots.businessId, business.id));
-    expect(cfg.clientId).toBe("starlight");
-    expect(snap.clientId).toBe("starlight");
-    // learning memories: tone memory always present, keyed by the tenant client id
-    const mems = await db.select().from(learningMemories).where(eq(learningMemories.businessId, business.id));
-    expect(mems.length).toBeGreaterThan(0);
-    expect(mems.every((m) => m.clientId === "starlight")).toBe(true);
   });
 
   it("resolveTenantByClientId('starlight') resolves to the internal business id (n8n lookup)", async () => {

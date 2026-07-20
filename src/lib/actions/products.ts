@@ -5,7 +5,6 @@ import { z } from "zod";
 import { canEdit, requireBusiness } from "../auth/guards";
 import { STOCK_STATUSES } from "../db/schema";
 import { addProductImage, addVariant, createProduct, deleteProduct, deleteProductImage, deleteVariant, updateProduct } from "../products";
-import { safeSyncCatalog } from "../n8n-sync";
 import type { ActionState } from "./business";
 
 const csv = (v: FormDataEntryValue | null) =>
@@ -52,7 +51,6 @@ export async function saveProductAction(_prev: ActionState, formData: FormData):
 
   if (parsed.data.productId) await updateProduct(business.id, parsed.data.productId, input);
   else await createProduct(business.id, input);
-  await safeSyncCatalog(business.id);
   revalidatePath("/app/products");
   revalidatePath(`/admin/businesses/${business.id}`);
   return { ok: true };
@@ -66,7 +64,6 @@ export async function deleteProductAction(formData: FormData): Promise<void> {
   const { business, role } = await requireBusiness(parsed.data.businessId, "admin");
   if (!canEdit(role)) return;
   await deleteProduct(business.id, parsed.data.productId);
-  await safeSyncCatalog(business.id);
   revalidatePath("/app/products");
 }
 
@@ -76,7 +73,6 @@ export async function toggleProductAction(formData: FormData): Promise<void> {
   const { business, role } = await requireBusiness(parsed.data.businessId, "admin");
   if (!canEdit(role)) return;
   await updateProduct(business.id, parsed.data.productId, { enabled: parsed.data.enabled });
-  await safeSyncCatalog(business.id);
   revalidatePath("/app/products");
 }
 
@@ -134,7 +130,6 @@ export async function addVariantAction(_prev: ActionState, formData: FormData): 
     size: parsed.data.size,
     stockStatus: parsed.data.stockStatus
   });
-  await safeSyncCatalog(business.id);
   revalidatePath(`/app/products/${parsed.data.productId}`);
   return { ok: true };
 }
@@ -145,6 +140,5 @@ export async function deleteVariantAction(formData: FormData): Promise<void> {
   const { business, role } = await requireBusiness(parsed.data.businessId, "admin");
   if (!canEdit(role)) return;
   await deleteVariant(business.id, parsed.data.variantId);
-  await safeSyncCatalog(business.id);
   revalidatePath(`/app/products/${parsed.data.productId}`);
 }

@@ -12,9 +12,9 @@ export default async function AnalyticsPage() {
   if (!business) redirect("/app/onboarding");
   const d = db();
 
-  // Daily message/AI-reply counts for the last 30 days (computed live; the
-  // analytics_daily table is filled by n8n/nightly rollup for heavy accounts).
-  // The date window is computed in SQL so the render stays pure.
+  // Daily message/AI-reply counts for the last 30 days — computed LIVE from the
+  // messages table (no rollup job). The date window is computed in SQL so the
+  // render stays pure.
   const daily = await d
     .select({
       day: sql<string>`to_char(${messages.createdAt}, 'YYYY-MM-DD')`,
@@ -76,7 +76,7 @@ export default async function AnalyticsPage() {
       </Card>
 
       <p className="text-xs text-[var(--ink-soft)]">
-        Estimated AI cost so far: €{Number(aiTotal?.cost ?? 0).toFixed(2)}. Savings estimate assumes a €600/month support
+        Estimated AI cost so far: €{Number(aiTotal?.cost ?? 0).toFixed(2)}. Savings estimate assumes a €700/month support
         salary and ~2 minutes saved per AI-handled reply.
       </p>
     </main>

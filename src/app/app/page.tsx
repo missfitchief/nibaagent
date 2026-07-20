@@ -4,6 +4,8 @@ import { requireUser, ownBusiness } from "@/lib/auth/guards";
 import { dashboardData } from "@/lib/actions/business";
 import { setupChecklist } from "@/lib/checklist";
 import { estimateSavings, planDef } from "@/lib/plans";
+import { monthlyValueStats } from "@/lib/usage";
+import { listOpenUnanswered } from "@/lib/unanswered";
 import { Badge, Card, EmptyState, Stat } from "@/components/ui";
 
 export default async function ClientDashboard() {
@@ -15,6 +17,8 @@ export default async function ClientDashboard() {
   const checklist = await setupChecklist(business.id);
   const remaining = checklist.filter((c) => !c.done);
   const savings = estimateSavings(data.stats.aiRepliesAllTime);
+  const month = await monthlyValueStats(business.id);
+  const openQuestions = await listOpenUnanswered(business.id);
   const plan = planDef(business.plan);
   // A saved connection has status 'active' (n8n convention); accept legacy values too.
   const CONNECTED = ["active", "connected", "partial"];
@@ -73,6 +77,44 @@ export default async function ClientDashboard() {
           hint={`≈ ${Math.round(savings.savedMinutes / 60)}h of support time (estimate)`}
           tone="ok"
         />
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="font-semibold">Vrednost ovog meseca</h2>
+            <Badge tone="info">procena</Badge>
+          </div>
+          <p className="mt-3 text-sm">
+            Ovog meseca: <span className="font-medium">{month.replies} odgovora</span> ·{" "}
+            <span className="font-medium">{month.orders} porudžbina</span> · procenjena ušteda{" "}
+            <span className="font-medium text-emerald-700">~€{month.savedEur}</span>
+          </p>
+          <p className="mt-2 text-xs text-[var(--ink-soft)]">
+            Procena uštede: plata radnika €700/mesečno (22 dana × 8h), ~2 min ušteđenog vremena po AI odgovoru.
+          </p>
+        </Card>
+
+        <Card>
+          <h2 className="font-semibold">Bot nije znao odgovor</h2>
+          {openQuestions.length === 0 ? (
+            <p className="mt-3 text-sm text-[var(--ink-soft)]">Nema otvorenih pitanja — bot je na sve odgovorio iz baze znanja. 🎉</p>
+          ) : (
+            <ul className="mt-3 space-y-2 text-sm">
+              {openQuestions.map((q) => (
+                <li key={q.id} className="flex items-center justify-between gap-3 rounded-lg bg-amber-50/60 px-3 py-2">
+                  <span className="truncate">{q.questionText}</span>
+                  <Link
+                    href={`/app/knowledge?prefill=${encodeURIComponent(q.questionText)}&uq=${q.id}`}
+                    className="shrink-0 font-medium text-sky-600 hover:underline"
+                  >
+                    Dodaj u znanje
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
       </section>
 
       <section className="grid gap-4 lg:grid-cols-2">
@@ -161,7 +203,7 @@ export default async function ClientDashboard() {
       </section>
 
       <p className="text-xs text-[var(--ink-soft)]">
-        Money/time saved is an estimate based on a €600/month support salary and ~2 minutes saved per AI-handled reply.
+        Money/time saved is an estimate based on a €700/month support salary and ~2 minutes saved per AI-handled reply.
       </p>
     </main>
   );

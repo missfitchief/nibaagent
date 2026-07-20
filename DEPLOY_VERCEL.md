@@ -7,8 +7,9 @@ step at the end — nothing in this app flips any webhook automatically.
 
 ## Why this is safe by construction
 
-- NibaChat Agent **never receives Meta webhooks itself** — the shared n8n workflow does. This app only manages OAuth,
-  tokens, settings and data.
+- NibaChat Agent only receives Meta webhooks if you point a Meta app's webhook callback at its own endpoint
+  (`{APP_URL}/api/meta/webhook`) — nothing in this app changes any app's webhook configuration by itself, so deploying it
+  cannot interrupt live traffic. Until the webhook is pointed here, the app only manages OAuth, tokens, settings and data.
 - The only Meta write this app performs is `POST /{page-id}/subscribed_apps` during a client's OAuth connect — that binds a
   page to **whatever app ID is in the env**. With the TEST app configured, the live app's webhook and page bindings are
   physically out of reach.
@@ -51,8 +52,7 @@ step at the end — nothing in this app flips any webhook automatically.
 | `META_APP_ID` | **TEST app ID** for now — NOT `2199807407438226` | ✅ |
 | `META_APP_SECRET` | TEST app's secret (App Settings → Basic → Show) | ✅ |
 | `META_REDIRECT_URI` | leave empty (defaults to `{APP_URL}/api/meta/callback`) | optional |
-| `META_VERIFY_TOKEN` | `nibachat_verify_123` (must equal the n8n webhook's verify token) | ✅ |
-| `N8N_WEBHOOK_URL` | your n8n instance's `meta-webhook` URL | when n8n is up |
+| `META_VERIFY_TOKEN` | `nibachat_verify_123` (verify token for the app's own webhook endpoint) | ✅ |
 | `OPENAI_API_KEY` | platform.openai.com key with billing | ✅ for AI replies |
 | `TELEGRAM_BOT_TOKEN` | @BotFather token | optional |
 | `WHATSAPP_PROVIDER_API_KEY` | leave empty (provider TBD) | optional |
@@ -68,8 +68,8 @@ No secrets in git — everything above lives only in Vercel's env UI.
 1. developers.facebook.com → **Create App** → type *Business* → name e.g. **"NibaChat TEST"**.
 2. Add products: **Facebook Login**, **Messenger**, **Instagram** (Webhooks comes with them).
 3. Copy App ID + App Secret into the Vercel env (§1).
-4. Point the TEST app's **webhook** at your n8n instance: callback = the `meta-webhook` URL, verify token =
-   `nibachat_verify_123`, subscribe `messages` for the `page` and `instagram` objects. (If n8n is not ready, skip — OAuth
+4. Point the TEST app's **webhook** at this app: callback = `https://<your-domain>/api/meta/webhook`, verify token =
+   `nibachat_verify_123`, subscribe `messages` for the `page` and `instagram` objects. (You can skip this at first — OAuth
    connect and token storage are testable without any webhook.)
 5. Use a **throwaway test Facebook Page + test Instagram** (Business/Creator, linked to the page). **Never connect the real
    Star Light Nakit page to the test app** — a page can be subscribed to multiple apps at once, and you'd get double replies
@@ -82,8 +82,8 @@ No secrets in git — everything above lives only in Vercel's env UI.
 2. `/app/test` — rules answer without any Meta involvement (FAQ, handoff word, order intent).
 3. **Connect via Facebook login** with the test page → expect status "Connected", token stored encrypted, page subscribed to
    the TEST app (verify: `GET /{page-id}/subscribed_apps` shows "NibaChat TEST" only).
-4. If n8n is wired: DM the test page from a tester account → n8n receives → replies → rows land in `messages`/
-   `processed_messages` → visible in the dashboard.
+4. With the webhook wired (step 4): DM the test page from a tester account → the app receives it → the engine replies →
+   rows land in `messages`/`processed_messages` → visible in the dashboard.
 5. Throughout: the live StarLight bot keeps answering its page via Render — verify with a control DM to the real page.
 
 ---
@@ -93,24 +93,25 @@ No secrets in git — everything above lives only in Vercel's env UI.
 **The trigger that stops the old Render bot:** the Render bot stops receiving messages at the exact moment the **live app's
 (`2199807407438226`) webhook callback URL** is changed away from `https://metabot-starlight.onrender.com/webhook` — via the
 Meta dashboard or a `POST /{app-id}/subscriptions` call. Nothing else does it: not deploying this app, not creating the
-business, not OAuth, not `subscribed_apps`. Until that moment, Render answers everything; after it, n8n does. (If both an
+business, not OAuth, not `subscribed_apps`. Until that moment, Render answers everything; after it, NibaChat does. (If both an
 old and a new app were subscribed to the page simultaneously, BOTH would receive — which is why the checklist pauses one bot
 before any overlap.)
 
 ### Migration checklist (cutover day, ~15 minutes, low-traffic hour)
-1. ✅ Test phase (§2) fully green, n8n answering the test page correctly for at least a few days.
+1. ✅ Test phase (§2) fully green, NibaChat answering the test page correctly for at least a few days.
 2. Create the **StarLight business** in NibaChat (owner account for Nikola), add its FAQs/knowledge, set **draft** mode.
 3. In Vercel env: switch `META_APP_ID`/`META_APP_SECRET` to the **live** app (`2199807407438226` + its secret) → redeploy.
    Whitelist the redirect URI in the live app's Facebook Login settings. *(Still nothing has changed for the Render bot.)*
 4. **Pause the Render bot** so there is no double-reply window: on Render env set `META_MODE=mock` (accepts but stops
    sending) — or simply proceed to step 5 immediately; before 5, Render still answers.
-5. **THE FLIP** (this is the moment Render stops receiving): in the live Meta app change the webhook callback to the n8n
-   `meta-webhook` URL with verify token `nibachat_verify_123`, objects `page` + `instagram`, field `messages`. Equivalent
+5. **THE FLIP** (this is the moment Render stops receiving): in the live Meta app change the webhook callback to
+   `https://<your-domain>/api/meta/webhook` with verify token `nibachat_verify_123`, objects `page` + `instagram`, field
+   `messages`. Equivalent
    API call (labeled for cutover day — do not run before):
    ```bash
    curl -X POST "https://graph.facebook.com/v25.0/2199807407438226/subscriptions" \
      --data-urlencode "object=page" \
-     --data-urlencode "callback_url=<N8N_WEBHOOK_URL>" \
+     --data-urlencode "callback_url=https://<your-domain>/api/meta/webhook" \
      --data-urlencode "verify_token=nibachat_verify_123" \
      --data-urlencode "fields=messages" \
      --data-urlencode "access_token=2199807407438226|<LIVE_APP_SECRET>"
@@ -118,7 +119,7 @@ before any overlap.)
    ```
 6. In NibaChat: StarLight owner clicks **Connect via Facebook login**, selects the Star Light Nakit page → token stored,
    `subscribed_apps` refreshed.
-7. Send test DMs (text + the handoff word) → n8n answers, rows appear in the NibaChat dashboard.
+7. Send test DMs (text + the handoff word) → NibaChat answers, rows appear in the NibaChat dashboard.
 8. Run **draft mode** under human supervision first; flip to **live** when the answers are trusted.
 9. Keep the Render service running but idle for at least a week — it is the rollback.
 
@@ -138,4 +139,4 @@ before any overlap.)
 - ❌ Never point the TEST app at the real StarLight page.
 - ❌ Never change app `2199807407438226`'s webhook until checklist step 5, knowingly, on cutover day.
 - ✅ One engine live per page at any moment (pause the other).
-- ✅ Rollback path stays warm until StarLight has run clean on n8n for a week.
+- ✅ Rollback path stays warm until StarLight has run clean on NibaChat for a week.

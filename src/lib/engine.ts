@@ -12,6 +12,8 @@ import { resolvePlatform } from "./platform";
 import { logEvent } from "./meta";
 import { notifyBusiness } from "./notify";
 import { messageUsage } from "./usage";
+import { retrieveKnowledgeChunks } from "./knowledge-retrieval";
+import { recordUnansweredQuestion } from "./unanswered";
 import { withinBusinessHours, type BusinessHours } from "./hours";
 import {
   extractOrderFields,
@@ -426,7 +428,6 @@ export async function runEngine(businessId: string, message: string, opts: Engin
 
   const faqSources = sources.filter((s) => s.type === "faq").map((s) => ({ q: s.title, a: s.content }));
   const extraFaq = ((settings?.faq as Array<{ q: string; a: string }>) ?? []).filter((f) => f?.q && f?.a);
-
   // 2. FAQ match — skipped when strategy is ai_heavy (let the model phrase it)
   if (strategy !== "ai_heavy") {
     const faqHit = matchFaq(message, [...faqSources, ...extraFaq]);
@@ -544,11 +545,17 @@ export async function runEngine(businessId: string, message: string, opts: Engin
   const threshold = settings?.handoffThreshold ?? 40;
   const confidentProduct = productConfidence >= threshold;
 
-  const knowledge = sources
-    .filter((s) => s.type !== "faq" && s.type !== "products")
-    .slice(0, 8)
-    .map((s) => `- ${s.title}: ${s.content.slice(0, 400)}`)
-    .join("\n");
+  // Knowledge grounding: chunked retrieval (knowledge_chunks) when the business
+  // HAS chunks — only the relevant ones are injected. Businesses without chunks
+  // keep the legacy whole-source injection (unchanged behavior).
+  const retrieval = await retrieveKnowledgeChunks(businessId, message);
+  const knowledge = retrieval.hasChunks
+    ? retrieval.text
+    : sources
+        .filter((s) => s.type !== "faq" && s.type !== "products")
+        .slice(0, 8)
+        .map((s) => `- ${s.title}: ${s.content.slice(0, 400)}`)
+        .join("\n");
   const faqList = [...faqSources, ...extraFaq].slice(0, 12).map((f) => `Q: ${f.q} A: ${f.a}`).join("\n");
 
   // Unknown case: no confident product, no other knowledge, no FAQ → apply the
@@ -722,6 +729,12 @@ export async function runEngine(businessId: string, message: string, opts: Engin
   }
 
   const cost = (ai.tokens / 1000) * (MODEL_COST_PER_1K[model] ?? 0.001);
+  // "Bot nije znao" loop: the AI answered with NO knowledge coverage (zero
+  // relevant chunks, no sources, no FAQ) — record the question for the
+  // dashboard so the owner can teach the bot. Fire-and-forget, never throws.
+  if (retrieval.relevantChunks === 0 && !knowledge && !faqList) {
+    void recordUnansweredQuestion({ businessId, conversationId: convo?.id ?? null, questionText: message }).catch(() => {});
+  }
   return persistReply(
     withSend({
       ...base,

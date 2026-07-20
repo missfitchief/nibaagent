@@ -2,8 +2,8 @@
 
 Multi-tenant SaaS that connects a business's **Facebook Page + Instagram** in one login and answers customer messages with a
 cost-optimized AI agent: instant replies, in-chat **order collection**, **human handoff**, knowledge training, notifications
-and analytics. The production message loop runs through a shared **n8n workflow** ("Meta Messenger Multi-Tenant SaaS"); this
-app is the management platform that owns the database both sides share.
+and analytics. The app owns the whole production message loop itself: Meta webhooks land on `/api/meta/webhook`, the
+built-in engine (`src/lib/engine.ts`) drafts the reply, and the Meta Send API delivers it.
 
 **Stack:** Next.js 16 (App Router, Turbopack) · TypeScript · Tailwind v4 · Drizzle ORM · Neon Postgres (embedded PGlite for
 local dev) · custom JWT auth (bcrypt + jose) · Vercel-ready.
@@ -26,19 +26,19 @@ npm run dev                   # http://localhost:3000
 
 See [.env.example](.env.example) — every variable is documented there. Required in production:
 `DATABASE_URL`, `ENCRYPTION_KEY`, `APP_URL`, `META_APP_ID`, `META_APP_SECRET`, `META_VERIFY_TOKEN`, `OPENAI_API_KEY`.
-Optional: `N8N_WEBHOOK_URL`, `TELEGRAM_BOT_TOKEN`, `WHATSAPP_PROVIDER_API_KEY`, `ADMIN_*`.
+Optional: `TELEGRAM_BOT_TOKEN`, `WHATSAPP_PROVIDER_API_KEY`, `ADMIN_*`.
 
 ## Setup guide
 
 ### 1. Neon (database)
 Create a project at neon.tech → copy the **pooled** connection string into `DATABASE_URL` → `npm run db:migrate` →
-`npm run seed:admin`. All tables are created by the SQL in `drizzle/`; `meta_connections` and `processed_messages` follow the
-shared n8n contract (snake_case columns — do not rename).
+`npm run seed:admin`. All tables are created by the SQL in `drizzle/`; `meta_connections` and `processed_messages` use
+snake_case columns — do not rename.
 
 ### 2. Meta app (one app for all clients)
 App ID `2199807407438226` ("Niba Chat"). In the Meta dashboard:
 - **Facebook Login → Settings → Valid OAuth Redirect URIs**: add `{APP_URL}/api/meta/callback` (shown in `/admin/settings`).
-- **Webhooks**: callback = your n8n webhook URL (path `meta-webhook`), verify token = `META_VERIFY_TOKEN`
+- **Webhooks**: callback = `{APP_URL}/api/meta/webhook`, verify token = `META_VERIFY_TOKEN`
   (`nibachat_verify_123`), subscribe `messages` for the `page` and `instagram` objects.
 - **App Review**: `pages_messaging` + `instagram_manage_messages` Advanced Access is required before the bot can serve the
   general public; in Development Mode only app-role holders' messages arrive. The data-deletion callback required by review is
@@ -47,11 +47,11 @@ App ID `2199807407438226` ("Niba Chat"). In the Meta dashboard:
   permanent Page token, resolves the Instagram Business ID, and subscribes the page to the app automatically (including the
   `/me/accounts`-returns-empty fallback via `debug_token` granular scopes).
 
-### 3. n8n (reply engine)
-Import your "Meta Messenger Multi-Tenant SaaS" workflow, point its Postgres credentials at the same Neon database, and set
-`N8N_WEBHOOK_URL` here. The app writes `businesses`, `meta_connections`, `bot_settings`, `knowledge_sources` etc.; n8n reads
-them to route and answer messages and writes `processed_messages`/`messages`. ⚠ Verify the workflow's SQL column names match
-`src/lib/db/schema.ts` — the schema was built from the spec, and any drift breaks routing silently.
+### 3. Message loop (built in)
+Nothing external to run: Meta delivers inbound events to `/api/meta/webhook`, which dedupes (`processed_messages`),
+resolves the tenant, applies conversation memory and the engine (`src/lib/engine.ts` — rules first, AI second), then sends
+the reply through the Meta Send API. Everything the engine reads (`businesses`, `meta_connections`, `bot_settings`,
+`knowledge_sources` …) and writes (`messages`, `processed_messages`) lives in the same database.
 
 ### 4. OpenAI
 Set `OPENAI_API_KEY`. Cost controls are built in: rules (FAQ/handoff/order intent) run before any AI call, the default model
@@ -77,7 +77,7 @@ to boot without it). Run `npm run db:migrate` against Neon once (locally with th
 - **Safe launch modes** per business: `draft` (suggest, never send) → `live` → `paused`.
 - **Observability**: `event_logs` (OAuth, webhook-subscribe, AI, notification, sheet errors) + `admin_audit_logs` for every
   admin action — both visible at `/admin/logs`.
-- **Money-saved estimate**: €600/month agent cost, ~2 min saved per AI reply — always labeled an estimate.
+- **Money-saved estimate**: €700/month agent cost, ~2 min saved per AI reply — always labeled an estimate.
 
 ## Commands
 
@@ -94,7 +94,7 @@ npm run seed:admin   # create/update the hidden admin user
 ## Still pending (needs external secrets/decisions)
 
 - Real Neon `DATABASE_URL` (runs on the embedded dev DB until then)
-- `META_APP_SECRET` + n8n webhook URL for the live message loop
+- `META_APP_SECRET` + the live Meta app's webhook pointed at `{APP_URL}/api/meta/webhook` for the live message loop
 - Google Sheets order **append** (orders persist in DB with `google_sheet_synced` tracking; a sheet/service-account
   integration slot is ready in settings + order model)
 - WhatsApp notification provider choice

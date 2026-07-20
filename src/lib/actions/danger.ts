@@ -11,14 +11,12 @@ import {
   businessMembers,
   businesses,
   businessSecrets,
-  catalogSnapshots,
   conversations,
   eventLogs,
   handoffs,
   invites,
   knowledgeChunks,
   knowledgeSources,
-  learningMemories,
   messages,
   metaConnections,
   orders,
@@ -26,8 +24,7 @@ import {
   productVariants,
   products,
   subscriptions,
-  tenantConfigs,
-  tenants
+  unansweredQuestions
 } from "../db/schema";
 import { canEdit, requireBusiness } from "../auth/guards";
 
@@ -142,14 +139,13 @@ export async function deleteBusinessAction(_prev: { error?: string; ok?: boolean
 /**
  * Delete EVERY tenant-scoped row for a business, in FK-dependency order, then the
  * business itself. Tenant-scoped (only `businessId` rows). Exported so the cascade
- * is unit-testable independent of the auth guard. `bidText` covers the n8n tables
- * whose business_id is TEXT (no FK).
+ * is unit-testable independent of the auth guard.
  */
 export async function purgeBusinessData(bid: string): Promise<void> {
-  const bidText = bid;
   await db().delete(messages).where(eq(messages.businessId, bid));
   await db().delete(handoffs).where(eq(handoffs.businessId, bid));
   await db().delete(orders).where(eq(orders.businessId, bid));
+  await db().delete(unansweredQuestions).where(eq(unansweredQuestions.businessId, bid));
   await db().delete(conversations).where(eq(conversations.businessId, bid));
   await db().delete(knowledgeChunks).where(eq(knowledgeChunks.businessId, bid));
   await db().delete(knowledgeSources).where(eq(knowledgeSources.businessId, bid));
@@ -164,11 +160,6 @@ export async function purgeBusinessData(bid: string): Promise<void> {
   await db().delete(eventLogs).where(eq(eventLogs.businessId, bid));
   await db().delete(invites).where(eq(invites.businessId, bid));
   await db().delete(businessMembers).where(eq(businessMembers.businessId, bid));
-  // n8n compat tables use a TEXT business_id (no FK) — clear them too so n8n sees nothing.
-  await db().delete(tenantConfigs).where(eq(tenantConfigs.businessId, bidText));
-  await db().delete(catalogSnapshots).where(eq(catalogSnapshots.businessId, bidText));
-  await db().delete(learningMemories).where(eq(learningMemories.businessId, bidText));
-  await db().delete(tenants).where(eq(tenants.businessId, bid));
   await db().delete(businesses).where(eq(businesses.id, bid));
 }
 

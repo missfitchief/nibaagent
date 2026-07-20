@@ -9,7 +9,6 @@ import { getSession } from "@/lib/auth/session";
 import { accessForUser } from "@/lib/auth/guards";
 import { clientIdFor } from "@/lib/tenant";
 import { exchangeCodeForToken, fetchGrantedPages, logEvent, META_TOKEN_TTL_MS, resolvedRedirectUri, subscribePageToApp, toLongLivedToken } from "@/lib/meta";
-import { safeSyncAllN8n } from "@/lib/n8n-sync";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -154,9 +153,6 @@ export async function GET(request: NextRequest) {
     }
 
     if (!connectedAny) return failTo("No page could be connected.");
-
-    // 5. Project runtime data into the n8n tables + tenants registry (keyed by client_id).
-    await safeSyncAllN8n(businessId);
 
     return redirectTo(`${backTo}${backTo.includes("?") ? "&" : "?"}connected=1${webhookFailed ? "&warning=webhook_subscription_failed" : ""}`);
   } catch (err) {

@@ -1,10 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { makeDb, seedBusiness, type TestDb } from "./helpers";
-import { metaConnections, tenantConfigs } from "../src/lib/db/schema";
+import { metaConnections } from "../src/lib/db/schema";
 import { accessForUser } from "../src/lib/auth/guards";
 import { resolveTenantByClientId } from "../src/lib/engine";
-import { syncTenantConfigForBusiness } from "../src/lib/n8n-sync";
 import { decryptToken, encryptToken, maskToken } from "../src/lib/crypto";
 import type { SessionUser } from "../src/lib/auth/session";
 
@@ -114,25 +113,6 @@ describe("Meta OAuth persistence → production meta_connections", () => {
     expect(await resolveTenantByClientId(business.id)).toBe(business.id);
     expect(await resolveTenantByClientId("PID")).toBe(business.id);
     expect(await resolveTenantByClientId("not-a-real-client")).toBeNull();
-  });
-
-  it("syncTenantConfigForBusiness flips meta_connected true once a connection exists", async () => {
-    const { business } = await seedBusiness(db, "Shop");
-    await syncTenantConfigForBusiness(business.id);
-    let [cfg] = await db.select().from(tenantConfigs).where(eq(tenantConfigs.businessId, business.id));
-    expect(cfg.metaConnected).toBe(false);
-    await connectPage({ businessId: business.id, businessName: business.name, plan: business.plan, pageId: "P", token: "t" });
-    await syncTenantConfigForBusiness(business.id);
-    [cfg] = await db.select().from(tenantConfigs).where(eq(tenantConfigs.businessId, business.id));
-    expect(cfg.metaConnected).toBe(true);
-  });
-
-  it("never leaks a token into the n8n tenant_configs projection", async () => {
-    const { business } = await seedBusiness(db, "Shop");
-    await connectPage({ businessId: business.id, businessName: business.name, plan: business.plan, pageId: "P", token: "SUPER_SECRET_TOKEN_XYZ" });
-    await syncTenantConfigForBusiness(business.id);
-    const [cfg] = await db.select().from(tenantConfigs).where(eq(tenantConfigs.businessId, business.id));
-    expect(JSON.stringify(cfg)).not.toContain("SUPER_SECRET_TOKEN_XYZ");
   });
 
   it("maskToken masks to last-4 and never returns the full token", () => {

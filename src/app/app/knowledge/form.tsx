@@ -5,13 +5,14 @@ import { createKnowledgeAction } from "@/lib/actions/knowledge";
 import type { ActionState } from "@/lib/actions/business";
 import { Button, Card, ErrorNote, Input, Label, Textarea } from "@/components/ui";
 
-export function KnowledgeForm({ businessId }: { businessId: string }) {
+export function KnowledgeForm({ businessId, prefillTitle = "", unansweredId = "" }: { businessId: string; prefillTitle?: string; unansweredId?: string }) {
   const [state, formAction, pending] = useActionState<ActionState, FormData>(createKnowledgeAction, {});
   const [type, setType] = useState("faq");
   return (
     <Card className="glass-strong">
       <form action={formAction} className="space-y-4">
         <input type="hidden" name="businessId" value={businessId} />
+        {unansweredId && <input type="hidden" name="uq" value={unansweredId} />}
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
             <Label htmlFor="type">Type</Label>
@@ -30,7 +31,7 @@ export function KnowledgeForm({ businessId }: { businessId: string }) {
           </div>
           <div>
             <Label htmlFor="title">Title</Label>
-            <Input id="title" name="title" required placeholder={type === "faq" ? "What is the delivery price?" : "e.g. Product list"} />
+            <Input id="title" name="title" required defaultValue={prefillTitle} placeholder={type === "faq" ? "What is the delivery price?" : "e.g. Product list"} />
           </div>
         </div>
         {type === "url" ? (

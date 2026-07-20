@@ -44,7 +44,7 @@ import { ProductForm } from "@/app/app/products/form";
 import { ImportPanel } from "@/app/app/products/import-panel";
 import { InviteForm } from "@/app/app/team/form";
 import { SecretsPanel } from "@/app/app/settings/secrets";
-import { AdminBusinessForm, DeleteBusinessForm, ImageRecognitionTest, ManualConnectionForm, MoveConnectionButton, SyncN8nButton, TelegramTestButton, TestConnectionButton } from "./forms";
+import { AdminBusinessForm, DeleteBusinessForm, ImageRecognitionTest, ManualConnectionForm, MoveConnectionButton, TelegramTestButton, TestConnectionButton } from "./forms";
 import type { BusinessHours } from "@/lib/hours";
 import { metaConfigCheck } from "@/lib/meta-check";
 import { MetaCheckPanel } from "@/components/meta-check-panel";
@@ -655,7 +655,6 @@ export default async function AdminBusinessDetail({
               <button className="btn-primary rounded-xl px-4 py-2 text-sm font-medium">Analyze old chats</button>
             </form>
             <TelegramTestButton businessId={biz.id} />
-            <SyncN8nButton businessId={biz.id} />
           </div>
         </div>
         {settings?.oldChatsSummary && (

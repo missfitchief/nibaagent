@@ -11,7 +11,6 @@ import { hashPassword } from "../auth/password";
 import { encryptToken, uuid } from "../crypto";
 import { sanitizeModel, APP_DEFAULT_MODEL } from "../models";
 import { clientIdFor } from "../tenant";
-import { safePropagate, safeSyncAllN8n } from "../n8n-sync";
 import type { ActionState } from "./business";
 
 async function audit(adminUserId: string, action: string, targetId: string, metadata: Record<string, unknown> = {}) {
@@ -117,8 +116,11 @@ export async function adminUpdateBusinessAction(_prev: ActionState, formData: Fo
     .onConflictDoUpdate({ target: subscriptions.businessId, set: { plan: rest.plan, updatedAt: new Date() } });
   // Provider lives on bot_settings — keep it in sync (row exists for every business).
   await db().update(botSettings).set({ aiProvider, updatedAt: new Date() }).where(eq(botSettings.businessId, businessId));
-  // If the tenant id changed, propagate it to meta_connections + n8n tables + tenants registry.
-  if (normalizedClientId) await safePropagate(businessId, normalizedClientId);
+  // If the tenant id changed, propagate it to meta_connections (client_id is the
+  // tenant key the webhook/reply path resolves by).
+  if (normalizedClientId) {
+    await db().update(metaConnections).set({ clientId: normalizedClientId, updatedAt: new Date() }).where(eq(metaConnections.businessId, businessId));
+  }
   await audit(admin.userId, "business.update", businessId, { ...rest, aiProvider, selectedModel: model, clientId: normalizedClientId || undefined });
   revalidatePath(`/admin/businesses/${businessId}`);
   return { ok: true };
@@ -173,7 +175,6 @@ export async function adminManualConnectionAction(_prev: ActionState, formData: 
     await db().insert(eventLogs).values({ businessId: data.businessId, level: "error", area: "meta_oauth", message: `Manual connection DB write FAILED for page ${data.pageId}: ${(err as Error).message}`, metadata: { by: admin.email } });
     return { error: `Database write failed: ${(err as Error).message}` };
   }
-  await safeSyncAllN8n(data.businessId);
   await audit(admin.userId, "connection.manual", data.businessId, { pageId: data.pageId, clientId, hasToken: Boolean(data.pageAccessToken) });
   await db().insert(eventLogs).values({
     businessId: data.businessId,
@@ -206,7 +207,6 @@ export async function adminMoveConnectionAction(_prev: ActionState, formData: Fo
     .update(metaConnections)
     .set({ businessId, clientId, businessName: biz.name, plan: biz.plan, status: "active", updatedAt: new Date() })
     .where(eq(metaConnections.pageId, pageId));
-  await safeSyncAllN8n(businessId);
   await audit(admin.userId, "connection.move", businessId, { pageId, fromClientId: existing.clientId, toClientId: clientId });
   await db().insert(eventLogs).values({ businessId, level: "warn", area: "meta_oauth", message: `Connection for page ${pageId} moved to client_id=${clientId} (from ${existing.clientId})`, metadata: { by: admin.email } });
   revalidatePath(`/admin/businesses/${businessId}`);

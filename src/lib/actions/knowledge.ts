@@ -6,7 +6,7 @@ import { z } from "zod";
 import { db } from "../db/client";
 import { eventLogs, knowledgeSources } from "../db/schema";
 import { requireBusiness } from "../auth/guards";
-import { safeSyncLearningMemories } from "../n8n-sync";
+import { resolveUnansweredWithSource } from "../unanswered";
 import { planDef } from "../plans";
 import type { ActionState } from "./business";
 
@@ -15,7 +15,9 @@ const KnowledgeCreate = z.object({
   type: z.enum(["faq", "manual", "url", "products"]),
   title: z.string().min(1).max(200),
   content: z.string().max(20000).default(""),
-  sourceUrl: z.string().max(500).default("")
+  sourceUrl: z.string().max(500).default(""),
+  /** Optional "Bot nije znao" row id — this save resolves that question. */
+  uq: z.string().uuid().optional()
 });
 
 export async function createKnowledgeAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
@@ -70,14 +72,19 @@ export async function createKnowledgeAction(_prev: ActionState, formData: FormDa
     }
   }
 
-  await db().insert(knowledgeSources).values({
-    businessId: business.id,
-    type: parsed.data.type,
-    title: parsed.data.title.trim(),
-    content,
-    sourceUrl: parsed.data.sourceUrl,
-    status
-  });
+  const [inserted] = await db()
+    .insert(knowledgeSources)
+    .values({
+      businessId: business.id,
+      type: parsed.data.type,
+      title: parsed.data.title.trim(),
+      content,
+      sourceUrl: parsed.data.sourceUrl,
+      status
+    })
+    .returning({ id: knowledgeSources.id });
+  // "Bot nije znao" flow: this entry answers a recorded question → mark it resolved.
+  if (parsed.data.uq && inserted) await resolveUnansweredWithSource(business.id, parsed.data.uq, inserted.id);
   await db().insert(eventLogs).values({
     businessId: business.id,
     level: status === "error" ? "warn" : "info",
@@ -85,8 +92,8 @@ export async function createKnowledgeAction(_prev: ActionState, formData: FormDa
     message: status === "error" ? `Unos znanja „${parsed.data.title}" sačuvan, ali sajt nije mogao biti učitan` : `Dodat izvor znanja „${parsed.data.title}" (${parsed.data.type})`,
     metadata: { type: parsed.data.type, status }
   });
-  await safeSyncLearningMemories(business.id);
   revalidatePath("/app/knowledge");
+  revalidatePath("/app");
   return status === "error" ? { error: "Saved, but the website could not be fetched — edit it or paste content manually." } : { ok: true };
 }
 
@@ -96,11 +103,10 @@ export async function deleteKnowledgeAction(formData: FormData): Promise<void> {
   const parsed = KnowledgeDelete.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return;
   const { business } = await requireBusiness(parsed.data.businessId, "admin");
-  // Archive, don't hard-delete: keeps audit trail and n8n prompt caches sane.
+  // Archive, don't hard-delete: keeps the audit trail intact.
   await db()
     .update(knowledgeSources)
     .set({ status: "archived", updatedAt: new Date() })
     .where(and(eq(knowledgeSources.id, parsed.data.id), eq(knowledgeSources.businessId, business.id)));
-  await safeSyncLearningMemories(business.id);
   revalidatePath("/app/knowledge");
 }

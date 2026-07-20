@@ -116,10 +116,10 @@ export function planDef(plan: Plan): PlanDef {
 
 /**
  * "Estimated money saved" — deliberately conservative and clearly labeled an
- * estimate. Assumption: a human support agent costs €600/month working ~22
+ * estimate. Assumption: a human support agent costs €700/month working ~22
  * days × 8h; each AI-handled reply saves ~2 minutes of agent time.
  */
-export const AGENT_MONTHLY_COST_EUR = 600;
+export const AGENT_MONTHLY_COST_EUR = 700;
 export const MINUTES_SAVED_PER_AI_REPLY = 2;
 
 export function estimateSavings(aiReplies: number): { savedMinutes: number; savedEur: number } {

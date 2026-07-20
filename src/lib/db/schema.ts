@@ -257,110 +257,6 @@ export const metaConnections = pgTable(
   (t) => [uniqueIndex("meta_connections_page_idx").on(t.pageId), index("meta_connections_business_idx").on(t.businessId)]
 );
 
-/**
- * ── n8n RUNTIME COMPATIBILITY TABLES ────────────────────────────────────────
- * The shared n8n workflow reads a tenant's runtime config, product catalog and
- * knowledge from these three flat, snake_case tables (NOT from the app's normal
- * tables). The app OWNS the data in its own tables and SYNCS a denormalized
- * projection here on every relevant change (see src/lib/n8n-sync.ts). IDs are
- * stored as text so n8n can match by client_id / page_id without uuid casts.
- * Never contains secrets/tokens.
- */
-export const tenantConfigs = pgTable(
-  "tenant_configs",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    clientId: text("client_id").notNull(),
-    businessId: text("business_id").notNull(),
-    businessName: text("business_name").notNull().default(""),
-    plan: text("plan").notNull().default("free"),
-    aiEnabled: boolean("ai_enabled").notNull().default(false),
-    /** launch / bot mode: draft | live | paused */
-    botMode: text("bot_mode").notNull().default("draft"),
-    defaultLanguage: text("default_language").notNull().default("sr"),
-    tone: text("tone").notNull().default("friendly"),
-    persiranje: boolean("persiranje").notNull().default(true),
-    /** AI strategy: rules_first | balanced | ai_heavy */
-    aiStrategy: text("ai_strategy").notNull().default("rules_first"),
-    aiProvider: text("ai_provider").notNull().default("openai"),
-    selectedModel: text("selected_model").notNull().default(""),
-    imageRecognitionEnabled: boolean("image_recognition_enabled").notNull().default(false),
-    handoffEnabled: boolean("handoff_enabled").notNull().default(true),
-    handoffThreshold: integer("handoff_threshold").notNull().default(40),
-    unknownBehavior: text("unknown_behavior").notNull().default("offer_handoff"),
-    businessHours: jsonb("business_hours").$type<Record<string, unknown>>().notNull().default({}),
-    telegramConnected: boolean("telegram_connected").notNull().default(false),
-    metaConnected: boolean("meta_connected").notNull().default(false),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
-  },
-  (t) => [uniqueIndex("tenant_configs_business_idx").on(t.businessId), index("tenant_configs_client_idx").on(t.clientId)]
-);
-
-export const catalogSnapshots = pgTable(
-  "catalog_snapshots",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    clientId: text("client_id").notNull(),
-    businessId: text("business_id").notNull(),
-    productId: text("product_id").notNull(),
-    title: text("title").notNull().default(""),
-    description: text("description").notNull().default(""),
-    price: numeric("price"),
-    currency: text("currency").notNull().default(""),
-    stockStatus: text("stock_status").notNull().default("unknown"),
-    stockQuantity: integer("stock_quantity"),
-    sku: text("sku").notNull().default(""),
-    category: text("category").notNull().default(""),
-    tags: jsonb("tags").$type<string[]>().notNull().default([]),
-    colors: jsonb("colors").$type<string[]>().notNull().default([]),
-    sizes: jsonb("sizes").$type<string[]>().notNull().default([]),
-    url: text("url").notNull().default(""),
-    enabled: boolean("enabled").notNull().default(true),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
-  },
-  (t) => [uniqueIndex("catalog_snapshots_product_idx").on(t.businessId, t.productId), index("catalog_snapshots_business_idx").on(t.businessId)]
-);
-
-export const learningMemories = pgTable(
-  "learning_memories",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    clientId: text("client_id").notNull(),
-    businessId: text("business_id").notNull(),
-    /** stable per-source key: a knowledge_sources uuid, or synthetic (faq/instructions/old_chats) */
-    sourceId: text("source_id").notNull(),
-    /** faq | website | old_chats | policy | instructions | tone | knowledge */
-    sourceType: text("source_type").notNull().default("knowledge"),
-    title: text("title").notNull().default(""),
-    content: text("content").notNull().default(""),
-    sourceUrl: text("source_url").notNull().default(""),
-    enabled: boolean("enabled").notNull().default(true),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
-  },
-  (t) => [uniqueIndex("learning_memories_source_idx").on(t.businessId, t.sourceId), index("learning_memories_business_idx").on(t.businessId)]
-);
-
-/**
- * Tenant registry read by the shared n8n workflow (n8n loads a tenant by
- * client_id). Synced 1:1 from businesses; client_id is the stable public tenant
- * id (e.g. "starlight"), business_id is the app's internal UUID. Never secrets.
- */
-export const tenants = pgTable(
-  "tenants",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    businessId: uuid("business_id").notNull(),
-    clientId: text("client_id").notNull(),
-    name: text("name").notNull().default(""),
-    plan: text("plan").notNull().default("free"),
-    status: text("status").notNull().default("active"),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
-  },
-  (t) => [uniqueIndex("tenants_business_idx").on(t.businessId), index("tenants_client_idx").on(t.clientId)]
-);
-
 /** Shared contract with n8n — anti-duplicate table keyed by Meta message id. */
 export const processedMessages = pgTable(
   "processed_messages",
@@ -512,6 +408,27 @@ export const knowledgeChunks = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
   },
   (t) => [index("knowledge_chunks_business_idx").on(t.businessId, t.sourceId)]
+);
+
+/**
+ * "Bot nije znao" loop: customer questions the AI answered WITHOUT any knowledge
+ * coverage (no relevant chunk, no source, no FAQ). Surfaced on the dashboard so
+ * the owner can add the answer to the knowledge base; resolvedAt NULL = open.
+ */
+export const unansweredQuestions = pgTable(
+  "unanswered_questions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    businessId: uuid("business_id")
+      .notNull()
+      .references(() => businesses.id),
+    conversationId: uuid("conversation_id").references(() => conversations.id),
+    questionText: text("question_text").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    resolvedByKnowledgeSourceId: uuid("resolved_by_knowledge_source_id").references(() => knowledgeSources.id)
+  },
+  (t) => [index("unanswered_questions_business_idx").on(t.businessId, t.createdAt)]
 );
 
 export const botSettings = pgTable("bot_settings", {

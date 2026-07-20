@@ -10,7 +10,15 @@ import { KnowledgeForm } from "./form";
 import { IngestPanel } from "./ingest";
 import { WebsiteKnowledgeForm } from "./website";
 
-export default async function KnowledgePage() {
+export default async function KnowledgePage({
+  searchParams
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
+  const sp = await searchParams;
+  // "Bot nije znao" → "Dodaj u znanje" lands here with the question prefilled.
+  const prefill = typeof sp.prefill === "string" ? sp.prefill.slice(0, 200) : "";
+  const uq = typeof sp.uq === "string" ? sp.uq : "";
   const user = await requireUser();
   const business = await ownBusiness(user);
   if (!business) redirect("/app/onboarding");
@@ -33,7 +41,15 @@ export default async function KnowledgePage() {
         </div>
       </header>
 
-      <KnowledgeForm businessId={business.id} />
+      {prefill && (
+        <Card className="border-amber-200 bg-amber-50/50">
+          <p className="text-sm">
+            Bot nije znao odgovor na: <span className="font-medium">„{prefill}"</span> — dodajte odgovor ispod i pitanje će biti označeno kao rešeno.
+          </p>
+        </Card>
+      )}
+
+      <KnowledgeForm businessId={business.id} prefillTitle={prefill} unansweredId={uq} />
       <WebsiteKnowledgeForm businessId={business.id} />
       <IngestPanel businessId={business.id} />
 
