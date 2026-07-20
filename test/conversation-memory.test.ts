@@ -105,6 +105,33 @@ describe("conversation memory", () => {
     expect(thread.filter((m) => m.direction === "outbound").length).toBe(5);
   });
 
+  it("order flow: two overlapping completions for the same thread never save the order twice", async () => {
+    // Regression for a real prod bug: a customer's final order message got
+    // processed twice (Meta redelivery / overlapping debounce windows) and
+    // the SAME order was saved as two separate rows.
+    const sender = { channel: "facebook" as const, senderId: "fb-user-race" };
+
+    const r1 = await runEngine(biz1, "Želim da naručim", { conversation: sender });
+    const convoId = r1.conversationId!;
+    await runEngine(biz1, "Ime i prezime: Ana Anić, grad Mostar", { conversation: sender });
+    await runEngine(biz1, "Ulica Kralja Tomislava 5, poštanski 88000", { conversation: sender });
+
+    // The final missing field (phone) arrives "twice at once" — two concurrent
+    // invocations racing to complete and save the same order.
+    const finalMessage = "061 999 888";
+    const [ra, rb] = await Promise.all([
+      runEngine(biz1, finalMessage, { conversation: sender }),
+      runEngine(biz1, finalMessage, { conversation: sender })
+    ]);
+    expect(ra.intent).toBe("order");
+    expect(rb.intent).toBe("order");
+
+    const orderRows = await db.select().from(schema.orders).where(eq(schema.orders.conversationId, convoId));
+    expect(orderRows.length).toBe(1);
+    expect(orderRows[0].customerName).toBe("Ana Anić");
+    expect(orderRows[0].phone).toBe("061 999 888");
+  });
+
   it("AI reply: the model receives recent history — follow-up questions stay coherent", async () => {
     await db.insert(schema.knowledgeSources).values({
       businessId: biz1,

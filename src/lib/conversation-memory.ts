@@ -189,25 +189,38 @@ export function parseConversationState(raw: unknown): ConversationState {
   };
 }
 
-/** Shallow-merge a patch into the stored state (order is merged field-wise). */
+/**
+ * Shallow-merge a patch into the stored state (order is merged field-wise).
+ *
+ * Runs inside a transaction with a row lock on the conversation: two inbound
+ * messages in the same thread can be picked up by overlapping serverless
+ * invocations (Meta redelivery, or two customer messages whose debounce
+ * windows both just elapsed), and a plain read-then-write here would let one
+ * update clobber the other — e.g. both read "order not completed yet", both
+ * finish the order and insert a duplicate row. The second transaction blocks
+ * on the lock until the first commits, then merges on top of the fresh state
+ * instead of a stale one.
+ */
 export async function updateConversationState(businessId: string, conversationId: string, patch: Partial<ConversationState>): Promise<ConversationState> {
   const d = db();
-  const [row] = await d
-    .select({ conversationState: conversations.conversationState })
-    .from(conversations)
-    .where(and(eq(conversations.id, conversationId), eq(conversations.businessId, businessId)))
-    .limit(1);
-  const current = parseConversationState(row?.conversationState);
-  const next: ConversationState = {
-    ...current,
-    ...patch,
-    order: patch.order ? { ...current.order, ...patch.order } : current.order
-  };
-  await d
-    .update(conversations)
-    .set({ conversationState: next as Record<string, unknown>, updatedAt: new Date() })
-    .where(and(eq(conversations.id, conversationId), eq(conversations.businessId, businessId)));
-  return next;
+  return d.transaction(async (tx) => {
+    const [row] = await tx
+      .select({ conversationState: conversations.conversationState })
+      .from(conversations)
+      .where(and(eq(conversations.id, conversationId), eq(conversations.businessId, businessId)))
+      .for("update");
+    const current = parseConversationState(row?.conversationState);
+    const next: ConversationState = {
+      ...current,
+      ...patch,
+      order: patch.order ? { ...current.order, ...patch.order } : current.order
+    };
+    await tx
+      .update(conversations)
+      .set({ conversationState: next as Record<string, unknown>, updatedAt: new Date() })
+      .where(and(eq(conversations.id, conversationId), eq(conversations.businessId, businessId)));
+    return next;
+  });
 }
 
 export async function markHumanTakeover(businessId: string, conversationId: string, until: Date): Promise<void> {

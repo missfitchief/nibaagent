@@ -1,7 +1,7 @@
 import "server-only";
 import { and, eq } from "drizzle-orm";
 import { db } from "./db/client";
-import { botSettings, businesses, handoffs, knowledgeSources, metaConnections, orders } from "./db/schema";
+import { botSettings, businesses, conversations, handoffs, knowledgeSources, metaConnections, orders } from "./db/schema";
 import { MODEL_COST_PER_1K } from "./plans";
 import { resolveOpenAiKey, resolveAnthropicKey } from "./secrets";
 import { matchProducts, productFacts, variantFacts, variantsFor } from "./products";
@@ -533,48 +533,75 @@ export async function runEngine(businessId: string, message: string, opts: Engin
           // Everything is here → save the order once and confirm with a summary.
           if (!order.productText && convoState.productContext?.length) order.productText = convoState.productContext.join(", ");
           const orderText = [order.productText ?? "", order.note ? `napomena: ${order.note}` : ""].filter(Boolean).join(" | ");
-          const [insertedOrder] = await d.insert(orders).values({
-            businessId,
-            conversationId: convo.id,
-            customerName: order.customerName ?? "",
-            phone: order.phone ?? "",
-            address: `${order.streetAndNumber ?? ""}, ${order.postalCode ?? ""} ${order.city ?? ""}`.trim(),
-            streetAndNumber: order.streetAndNumber ?? "",
-            city: order.city ?? "",
-            postalCode: order.postalCode ?? "",
-            orderText,
-            internalNote: order.note ?? ""
-          }).returning({ id: orders.id });
-          order.completed = true;
-          await logEvent(businessId, "info", "ai_reply", `Order collected in conversation ${convo.id}`, { conversationId: convo.id });
-          notifyOwner({
-            kind: "order",
-            text: [
-              "Nova porudžbina primljena 🛒",
-              `Kupac: ${order.customerName ?? ""}`,
-              `Telefon: ${order.phone ?? ""}`,
-              `Grad: ${[order.postalCode, order.city].filter(Boolean).join(" ")}`,
-              `Adresa: ${order.streetAndNumber ?? ""}`,
-              `Porudžbina: ${orderText || "—"}`,
-              `Razgovor: ${convo.id}`
-            ].join("\n")
-          });
-          // Google Sheets sync (per-business Apps Script URL). Never throws —
-          // failures are recorded on the order (sheet_sync_error) + logged.
-          if (biz.googleSheetUrl && insertedOrder?.id) {
-            await syncOrderToSheet({
-              businessId,
-              sheetUrl: biz.googleSheetUrl,
-              payload: buildSheetPayload({
-                orderId: insertedOrder.id,
-                createdAt: new Date(),
-                clientId: biz.clientId,
-                businessName: biz.name,
-                channel: convo.channel,
-                order,
-                orderText
+          // Lock the conversation row and re-check under the lock before
+          // inserting: two overlapping invocations for the same thread (a
+          // Meta redelivery, or two customer messages whose debounce windows
+          // both just elapsed) would otherwise both reach this branch and
+          // insert the same order twice. Insert + state write happen in the
+          // same transaction so a failure never leaves us with "completed"
+          // set but no actual order row.
+          const convoId = convo.id;
+          const insertedOrder = await d.transaction(async (tx) => {
+            const [row] = await tx
+              .select({ conversationState: conversations.conversationState })
+              .from(conversations)
+              .where(and(eq(conversations.id, convoId), eq(conversations.businessId, businessId)))
+              .for("update");
+            const lockedState = parseConversationState(row?.conversationState);
+            if (lockedState.order?.completed) return null; // a concurrent run already saved it
+            const [inserted] = await tx
+              .insert(orders)
+              .values({
+                businessId,
+                conversationId: convoId,
+                customerName: order.customerName ?? "",
+                phone: order.phone ?? "",
+                address: `${order.streetAndNumber ?? ""}, ${order.postalCode ?? ""} ${order.city ?? ""}`.trim(),
+                streetAndNumber: order.streetAndNumber ?? "",
+                city: order.city ?? "",
+                postalCode: order.postalCode ?? "",
+                orderText,
+                internalNote: order.note ?? ""
               })
+              .returning({ id: orders.id });
+            await tx
+              .update(conversations)
+              .set({ conversationState: { ...lockedState, order: { ...order, completed: true } } as Record<string, unknown>, updatedAt: new Date() })
+              .where(and(eq(conversations.id, convoId), eq(conversations.businessId, businessId)));
+            return inserted ?? null;
+          });
+          order.completed = true;
+          if (insertedOrder) {
+            await logEvent(businessId, "info", "ai_reply", `Order collected in conversation ${convo.id}`, { conversationId: convo.id });
+            notifyOwner({
+              kind: "order",
+              text: [
+                "Nova porudžbina primljena 🛒",
+                `Kupac: ${order.customerName ?? ""}`,
+                `Telefon: ${order.phone ?? ""}`,
+                `Grad: ${[order.postalCode, order.city].filter(Boolean).join(" ")}`,
+                `Adresa: ${order.streetAndNumber ?? ""}`,
+                `Porudžbina: ${orderText || "—"}`,
+                `Razgovor: ${convo.id}`
+              ].join("\n")
             });
+            // Google Sheets sync (per-business Apps Script URL). Never throws —
+            // failures are recorded on the order (sheet_sync_error) + logged.
+            if (biz.googleSheetUrl) {
+              await syncOrderToSheet({
+                businessId,
+                sheetUrl: biz.googleSheetUrl,
+                payload: buildSheetPayload({
+                  orderId: insertedOrder.id,
+                  createdAt: new Date(),
+                  clientId: biz.clientId,
+                  businessName: biz.name,
+                  channel: convo.channel,
+                  order,
+                  orderText
+                })
+              });
+            }
           }
           reply = orderConfirmReply(lang, formal, order);
         }
