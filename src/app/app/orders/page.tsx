@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db/client";
 import { orders } from "@/lib/db/schema";
 import { ownBusiness, requireUser } from "@/lib/auth/guards";
-import { setOrderStatusAction } from "@/lib/actions/inbox";
+import { deleteOrderAction, setOrderStatusAction } from "@/lib/actions/inbox";
 import { Badge, Card, EmptyState } from "@/components/ui";
 
 const STATUSES = ["new", "confirmed", "shipped", "done", "cancelled"] as const;
@@ -43,6 +43,7 @@ export default async function OrdersPage() {
                   <th className="py-2 pr-4">Order</th>
                   <th className="py-2 pr-4">Sheet</th>
                   <th className="py-2 pr-4">Status</th>
+                  <th className="py-2 pr-4"></th>
                 </tr>
               </thead>
               <tbody>
@@ -77,6 +78,15 @@ export default async function OrdersPage() {
                         </select>
                         <button className="rounded-lg border border-[var(--card-border)] bg-white/60 px-2 py-1 text-xs hover:bg-white">
                           Set
+                        </button>
+                      </form>
+                    </td>
+                    <td className="py-2 pr-4">
+                      <form action={deleteOrderAction}>
+                        <input type="hidden" name="businessId" value={business.id} />
+                        <input type="hidden" name="id" value={o.id} />
+                        <button className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700 hover:bg-rose-100">
+                          Delete
                         </button>
                       </form>
                     </td>

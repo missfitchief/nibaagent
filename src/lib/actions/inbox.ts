@@ -43,3 +43,13 @@ export async function setOrderStatusAction(formData: FormData): Promise<void> {
     .where(and(eq(orders.id, parsed.data.id), eq(orders.businessId, business.id)));
   revalidatePath("/app/orders");
 }
+
+const OrderDelete = z.object({ businessId: z.string().uuid(), id: z.string().uuid() });
+
+export async function deleteOrderAction(formData: FormData): Promise<void> {
+  const parsed = OrderDelete.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return;
+  const { business } = await requireBusiness(parsed.data.businessId);
+  await db().delete(orders).where(and(eq(orders.id, parsed.data.id), eq(orders.businessId, business.id)));
+  revalidatePath("/app/orders");
+}

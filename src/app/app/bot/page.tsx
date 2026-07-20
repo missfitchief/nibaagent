@@ -49,6 +49,7 @@ export default async function BotSettingsPage() {
       </Card>
 
       <BotSettingsForm
+        key={settings?.updatedAt.toISOString() ?? "new"}
         businessId={business.id}
         defaults={{
           tone: settings?.tone ?? "friendly",

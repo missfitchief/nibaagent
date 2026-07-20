@@ -29,7 +29,7 @@ import { IngestPanel } from "@/app/app/knowledge/ingest";
 import { WebsiteKnowledgeForm } from "@/app/app/knowledge/website";
 import { listMembers, removeMemberAction } from "@/lib/actions/members";
 import { deleteProductAction, toggleProductAction } from "@/lib/actions/products";
-import { resolveHandoffAction, setOrderStatusAction } from "@/lib/actions/inbox";
+import { deleteOrderAction, resolveHandoffAction, setOrderStatusAction } from "@/lib/actions/inbox";
 import { analyzeOldChatsAction } from "@/lib/actions/tools";
 import {
   archiveBusinessAction,
@@ -372,22 +372,8 @@ export default async function AdminBusinessDetail({
 
       {tab === "bot" && (
         <>
-          <AdminBusinessForm
-            businessId={biz.id}
-            defaults={{
-              plan: biz.plan,
-              status: biz.status,
-              aiMode: biz.aiMode,
-              handoffEnabled: biz.handoffEnabled,
-              aiProvider: settings?.aiProvider ?? "openai",
-              selectedModel: biz.selectedModel,
-              dailyMessageLimit: biz.dailyMessageLimit,
-              monthlyMessageLimit: biz.monthlyMessageLimit,
-              tone: biz.tone,
-              clientId: biz.clientId
-            }}
-          />
           <BotSettingsForm
+            key={settings?.updatedAt.toISOString() ?? "new"}
             businessId={biz.id}
             showModelPicker={false}
             defaults={{
@@ -525,6 +511,11 @@ export default async function AdminBusinessDetail({
                       </select>
                       <button className="rounded-lg border border-[var(--card-border)] bg-white px-2 py-1 text-xs">Set</button>
                     </form>
+                    <form action={deleteOrderAction}>
+                      <input type="hidden" name="businessId" value={biz.id} />
+                      <input type="hidden" name="id" value={o.id} />
+                      <button className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700 hover:bg-rose-100">Delete</button>
+                    </form>
                   </div>
                   <p className="mt-1 text-[var(--ink-soft)]">{o.orderText || "—"}</p>
                   <form action={setOrderNoteAction} className="mt-2 flex gap-1.5">
@@ -599,6 +590,7 @@ export default async function AdminBusinessDetail({
 
       <section className="grid gap-4 lg:grid-cols-2">
         <AdminBusinessForm
+          key={biz.updatedAt.toISOString()}
           businessId={biz.id}
           defaults={{
             plan: biz.plan,

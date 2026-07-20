@@ -278,11 +278,11 @@ export function ManualConnectionForm({ businessId }: { businessId: string }) {
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
             <Label htmlFor="pageId">Page ID *</Label>
-            <Input name="pageId" required placeholder="547758538411119" />
+            <Input name="pageId" required placeholder="547758538411119" autoComplete="off" />
           </div>
           <div>
             <Label htmlFor="pageName">Page name</Label>
-            <Input name="pageName" placeholder="Star Light Nakit" />
+            <Input name="pageName" placeholder="Star Light Nakit" autoComplete="off" />
           </div>
         </div>
         <div>
@@ -292,7 +292,7 @@ export function ManualConnectionForm({ businessId }: { businessId: string }) {
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
             <Label htmlFor="instagramBusinessAccountId">Instagram Business ID</Label>
-            <Input name="instagramBusinessAccountId" placeholder="17841…" />
+            <Input name="instagramBusinessAccountId" placeholder="17841…" autoComplete="off" />
           </div>
           <div>
             <Label htmlFor="instagramAccessToken">Instagram token (if separate)</Label>
