@@ -109,6 +109,12 @@ export async function adminUpdateBusinessAction(_prev: ActionState, formData: Fo
     .update(businesses)
     .set({ ...rest, selectedModel: model, aiEnabled: rest.aiMode !== "paused", ...(normalizedClientId ? { clientId: normalizedClientId } : {}), updatedAt: new Date() })
     .where(eq(businesses.id, businessId));
+  // Keep the subscription row on the same plan — businesses.plan and
+  // subscriptions.plan must never drift apart.
+  await db()
+    .insert(subscriptions)
+    .values({ businessId, plan: rest.plan, status: "active" })
+    .onConflictDoUpdate({ target: subscriptions.businessId, set: { plan: rest.plan, updatedAt: new Date() } });
   // Provider lives on bot_settings — keep it in sync (row exists for every business).
   await db().update(botSettings).set({ aiProvider, updatedAt: new Date() }).where(eq(botSettings.businessId, businessId));
   // If the tenant id changed, propagate it to meta_connections + n8n tables + tenants registry.

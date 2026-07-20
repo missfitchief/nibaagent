@@ -10,6 +10,8 @@ import { callOpenAiChat, resolveProviderRuntimeConfig, sanitizeAiError, type Ope
 import { buildSheetPayload, syncOrderToSheet } from "./sheets-sync";
 import { resolvePlatform } from "./platform";
 import { logEvent } from "./meta";
+import { notifyBusiness } from "./notify";
+import { messageUsage } from "./usage";
 import { withinBusinessHours, type BusinessHours } from "./hours";
 import {
   extractOrderFields,
@@ -55,7 +57,7 @@ export const HISTORY_LIMIT = 15;
 const HUMAN_TAKEOVER_MS = 24 * 60 * 60 * 1000;
 
 export interface EngineResult {
-  intent: "handoff" | "faq" | "order" | "ai" | "no_ai" | "unknown" | "off_hours";
+  intent: "handoff" | "faq" | "order" | "ai" | "no_ai" | "unknown" | "off_hours" | "limit";
   reply: string;
   handoffTriggered: boolean;
   orderTriggered: boolean;
@@ -249,6 +251,17 @@ export interface EngineOptions {
     system: string;
     messages: Array<{ role: "user" | "assistant" | "system"; content: string }>;
   }) => Promise<{ text: string; tokens: number }>;
+  /**
+   * Test seam: intercept the owner notification (new order / handoff / limit).
+   * The engine always fires it fire-and-forget — it never throws into the reply
+   * path and never blocks the customer reply on a notification provider.
+   */
+  notify?: (input: OwnerNotification) => Promise<void>;
+}
+
+export interface OwnerNotification {
+  kind: "handoff" | "order" | "complaint" | "event";
+  text: string;
 }
 
 export async function runEngine(businessId: string, message: string, opts: EngineOptions = {}): Promise<EngineResult> {
@@ -266,7 +279,9 @@ export async function runEngine(businessId: string, message: string, opts: Engin
   const strategy = settings?.aiStrategy ?? "rules_first";
   const formal = settings?.persiranje ?? true;
   const launchMode = biz.aiMode;
-  const replyDelaySeconds = settings?.replyDelaySeconds ?? 0;
+  // Hard cap at 30s: the webhook function budget is 60s and a 10s debounce runs
+  // first — a larger stored value (or a legacy row) must never blow the budget.
+  const replyDelaySeconds = Math.min(Math.max(settings?.replyDelaySeconds ?? 0, 0), 30);
   const lang = biz.defaultLanguage;
   const now = opts.now ?? new Date();
 
@@ -285,6 +300,15 @@ export async function runEngine(businessId: string, message: string, opts: Engin
   };
   // A reply is only actually sent in "live" mode. Draft = prepared but held; paused = nothing.
   const withSend = (r: EngineResult): EngineResult => ({ ...r, shouldSend: launchMode === "live" && r.reply.trim().length > 0 });
+
+  // Owner notifications (new order, handoff, plan limit). Fire-and-forget:
+  // a notification provider must NEVER throw into the reply path or delay it.
+  const notifyOwner = (n: OwnerNotification): void => {
+    const send = opts.notify ?? ((i: OwnerNotification) => notifyBusiness(biz, i.kind, i.text));
+    void Promise.resolve()
+      .then(() => send(n))
+      .catch(() => {});
+  };
 
   // ── Conversation memory setup ────────────────────────────────────────────
   // Identify the thread by (business, channel, sender), save the inbound
@@ -385,6 +409,10 @@ export async function runEngine(businessId: string, message: string, opts: Engin
     if (convo) {
       await markHumanTakeover(businessId, convo.id, new Date(now.getTime() + HUMAN_TAKEOVER_MS));
       await d.insert(handoffs).values({ businessId, conversationId: convo.id, triggerWord: trigger, reason: "trigger word in conversation" });
+      notifyOwner({
+        kind: "handoff",
+        text: `Predaja razgovora članu tima (ključna reč: „${trigger}").\nPoruka kupca: ${message.slice(0, 300)}\nRazgovor: ${convo.id}`
+      });
     }
     return persistReply(
       withSend({
@@ -470,6 +498,18 @@ export async function runEngine(businessId: string, message: string, opts: Engin
           }).returning({ id: orders.id });
           order.completed = true;
           await logEvent(businessId, "info", "ai_reply", `Order collected in conversation ${convo.id}`, { conversationId: convo.id });
+          notifyOwner({
+            kind: "order",
+            text: [
+              "Nova porudžbina primljena 🛒",
+              `Kupac: ${order.customerName ?? ""}`,
+              `Telefon: ${order.phone ?? ""}`,
+              `Grad: ${[order.postalCode, order.city].filter(Boolean).join(" ")}`,
+              `Adresa: ${order.streetAndNumber ?? ""}`,
+              `Porudžbina: ${orderText || "—"}`,
+              `Razgovor: ${convo.id}`
+            ].join("\n")
+          });
           // Google Sheets sync (per-business Apps Script URL). Never throws —
           // failures are recorded on the order (sheet_sync_error) + logged.
           if (biz.googleSheetUrl && insertedOrder?.id) {
@@ -522,6 +562,41 @@ export async function runEngine(businessId: string, message: string, opts: Engin
     }
     return persistReply(
       withSend({ ...base, intent: "unknown", handoffTriggered: u.handoff, reply: u.reply, note: `no grounding (product conf ${productConfidence} < ${threshold})` })
+    );
+  }
+
+  // Plan message limits — every rules path above (handoff words, FAQ, order
+  // collection, unknown template) ALWAYS runs; only the AI call is gated.
+  // Counts = this business's outbound messages today / this calendar month; a
+  // positive per-business override wins over the plan default. The owner is
+  // notified once, exactly when a counter crosses its limit (count == limit
+  // means THIS reply would be limit+1).
+  const usage = await messageUsage(businessId, biz.plan, biz.dailyMessageLimit, biz.monthlyMessageLimit, now);
+  const overDaily = usage.usedToday >= usage.dailyLimit;
+  const overMonthly = usage.usedMonth >= usage.monthlyLimit;
+  if (overDaily || overMonthly) {
+    await logEvent(
+      businessId,
+      "warn",
+      "ai_reply",
+      `Limit poruka dostignut (danas ${usage.usedToday}/${usage.dailyLimit}, mesec ${usage.usedMonth}/${usage.monthlyLimit}) — AI odgovor preskočen`
+    );
+    if (usage.usedToday === usage.dailyLimit || usage.usedMonth === usage.monthlyLimit) {
+      notifyOwner({
+        kind: "event",
+        text: `Dostignut limit poruka za vaš plan (danas ${usage.usedToday}/${usage.dailyLimit}, ovaj mesec ${usage.usedMonth}/${usage.monthlyLimit}). AI odgovori su pauzirani do resetovanja brojača — pravila (FAQ/predaja/porudžbine) i dalje rade. Razmotrite nadogradnju plana.`
+      });
+    }
+    return persistReply(
+      withSend({
+        ...base,
+        intent: "limit",
+        reply:
+          lang === "en"
+            ? "Thanks for your message! We're receiving a high volume of inquiries right now — we'll get back to you as soon as possible."
+            : "Hvala na poruci! Trenutno imamo povećan broj upita — javićemo se u najkraćem roku.",
+        note: "plan message limit reached — AI skipped"
+      })
     );
   }
 

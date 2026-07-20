@@ -27,6 +27,12 @@ export async function resolvedRedirectUri(): Promise<string> {
 
 const G = "https://graph.facebook.com/v25.0";
 
+/** Graph API base URL (exported for the token-health cron). */
+export const GRAPH_API_BASE = G;
+
+/** Meta long-lived tokens last ~60 days — stamped on every connect/reconnect. */
+export const META_TOKEN_TTL_MS = 60 * 24 * 60 * 60 * 1000;
+
 export const META_OAUTH_SCOPES = [
   "pages_show_list",
   "pages_read_engagement",

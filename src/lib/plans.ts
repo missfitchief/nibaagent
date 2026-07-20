@@ -2,8 +2,9 @@ import type { Plan } from "./db/schema";
 
 /**
  * Pricing (manual/contact-us billing for now; Stripe/Paddle can plug into the
- * subscriptions table later). Limits drive real enforcement: daily/monthly
- * message caps are checked before any AI call.
+ * subscriptions table later). Limits drive real enforcement: the monthly message
+ * cap (messagesPerMonth), together with per-business daily/monthly overrides,
+ * is checked in the engine before any AI call (see lib/usage.ts).
  */
 export interface PlanDef {
   id: Plan;

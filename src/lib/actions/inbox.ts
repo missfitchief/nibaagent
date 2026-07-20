@@ -12,7 +12,7 @@ const HandoffResolve = z.object({ businessId: z.string().uuid(), id: z.string().
 export async function resolveHandoffAction(formData: FormData): Promise<void> {
   const parsed = HandoffResolve.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return;
-  const { business } = await requireBusiness(parsed.data.businessId);
+  const { business } = await requireBusiness(parsed.data.businessId, "admin");
   const [h] = await db()
     .update(handoffs)
     .set({ status: "resolved", resolvedAt: new Date() })
@@ -36,7 +36,7 @@ const OrderStatus = z.object({
 export async function setOrderStatusAction(formData: FormData): Promise<void> {
   const parsed = OrderStatus.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return;
-  const { business } = await requireBusiness(parsed.data.businessId);
+  const { business } = await requireBusiness(parsed.data.businessId, "admin");
   await db()
     .update(orders)
     .set({ status: parsed.data.status, updatedAt: new Date() })

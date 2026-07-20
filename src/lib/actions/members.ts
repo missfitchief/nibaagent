@@ -4,47 +4,10 @@ import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "../db/client";
-import { adminAuditLogs, businessMembers, businesses, eventLogs, users } from "../db/schema";
+import { businessMembers, businesses, eventLogs, users } from "../db/schema";
 import { canEdit, requireBusiness } from "../auth/guards";
-import { hashPassword } from "../auth/password";
-import { uuid } from "../crypto";
-import type { ActionState } from "./business";
 
-/** Add a member by email. Creates the user if they don't exist yet (invite). */
-const AddMember = z.object({
-  businessId: z.string().uuid(),
-  email: z.string().email().max(200),
-  role: z.enum(["admin", "agent", "viewer"]) // owner is the businesses.owner_user_id, not assignable here
-});
-
-export async function addMemberAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
-  const parsed = AddMember.safeParse(Object.fromEntries(formData));
-  if (!parsed.success) return { error: "Enter a valid email and role." };
-  const { user, business, role } = await requireBusiness(parsed.data.businessId, "admin");
-  if (!canEdit(role)) return { error: "Only owner/admin can manage members." };
-
-  const email = parsed.data.email.toLowerCase().trim();
-  let member = (await db().select().from(users).where(eq(users.email, email)).limit(1))[0];
-  if (!member) {
-    // Invite stub: create a client user with a random password they must reset.
-    const tempHash = await hashPassword(uuid() + uuid());
-    member = (await db().insert(users).values({ email, name: email.split("@")[0], passwordHash: tempHash, role: "client" }).returning())[0];
-  }
-  if (member.id === business.ownerUserId) return { error: "That user is already the owner." };
-
-  await db()
-    .insert(businessMembers)
-    .values({ businessId: business.id, userId: member.id, role: parsed.data.role })
-    .onConflictDoUpdate({ target: [businessMembers.businessId, businessMembers.userId], set: { role: parsed.data.role } });
-
-  await db().insert(eventLogs).values({ businessId: business.id, level: "info", area: "admin", message: `member added: ${email} (${parsed.data.role})`, metadata: { by: user.email } });
-  if (user.role === "admin") {
-    await db().insert(adminAuditLogs).values({ adminUserId: user.userId, action: "member.add", targetType: "business", targetId: business.id, metadata: { email, role: parsed.data.role } });
-  }
-  revalidatePath("/app/team");
-  revalidatePath(`/admin/businesses/${business.id}`);
-  return { ok: true };
-}
+/** Members join via token invites (see invites.ts) — no direct add here. */
 
 const RemoveMember = z.object({ businessId: z.string().uuid(), userId: z.string().uuid() });
 

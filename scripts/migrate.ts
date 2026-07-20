@@ -9,6 +9,12 @@ import { Pool } from "pg";
 
 async function main() {
   const url = process.env.DATABASE_URL ?? "";
+  // Never let a production build "succeed" by silently migrating the local
+  // PGlite fallback — without DATABASE_URL a deploy would ship an unmigrated DB.
+  if (!url && (process.env.NODE_ENV === "production" || process.env.VERCEL)) {
+    console.error("DATABASE_URL is required in production — refusing to run migrations against the local PGlite fallback.");
+    process.exit(1);
+  }
   const dir = path.resolve("drizzle");
   const files = fs.readdirSync(dir).filter((f) => f.endsWith(".sql")).sort();
 

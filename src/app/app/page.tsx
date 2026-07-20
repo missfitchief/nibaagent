@@ -20,9 +20,19 @@ export default async function ClientDashboard() {
   const CONNECTED = ["active", "connected", "partial"];
   const fb = data.connections.some((c) => CONNECTED.includes(c.status));
   const ig = data.connections.some((c) => c.instagramBusinessAccountId && c.status !== "error" && c.status !== "disconnected");
+  // The Meta health cron flips broken tokens to "error" — warn prominently.
+  const connectionError = data.connections.some((c) => c.status === "error");
 
   return (
     <main className="space-y-5">
+      {connectionError && (
+        <div className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          Veza sa Facebook/Instagram nalogom je prekinuta.{" "}
+          <Link href="/app/connect" className="font-semibold underline hover:text-rose-800">
+            Ponovo povežite stranicu.
+          </Link>
+        </div>
+      )}
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">{business.name}</h1>

@@ -79,8 +79,8 @@ export function BotSettingsForm({
             </select>
           </div>
           <div>
-            <Label htmlFor="replyDelaySeconds">Reply delay (seconds)</Label>
-            <Input id="replyDelaySeconds" name="replyDelaySeconds" type="number" min={0} max={600} defaultValue={defaults.replyDelaySeconds} />
+            <Label htmlFor="replyDelaySeconds">Reply delay (seconds, max 30)</Label>
+            <Input id="replyDelaySeconds" name="replyDelaySeconds" type="number" min={0} max={30} defaultValue={defaults.replyDelaySeconds} />
           </div>
           <div>
             <Label htmlFor="handoffThreshold">Match confidence threshold (0–100)</Label>

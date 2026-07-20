@@ -95,12 +95,12 @@ export async function acceptInviteAction(_prev: ActionState, formData: FormData)
   if (!info.valid || !info.email || !info.businessId) return { error: info.reason ?? "Invalid invite." };
 
   const inv = (await db().select().from(invites).where(eq(invites.token, parsed.data.token)).limit(1))[0]!;
-  const hash = await hashPassword(parsed.data.password);
   let member = (await db().select().from(users).where(eq(users.email, info.email)).limit(1))[0];
   if (!member) {
+    // Only a NEW account gets the submitted password. An existing user keeps
+    // their own password — accepting an invite must never overwrite credentials.
+    const hash = await hashPassword(parsed.data.password);
     member = (await db().insert(users).values({ email: info.email, name: info.email.split("@")[0], passwordHash: hash, role: "client" }).returning())[0];
-  } else {
-    await db().update(users).set({ passwordHash: hash }).where(eq(users.id, member.id));
   }
   await db()
     .insert(businessMembers)

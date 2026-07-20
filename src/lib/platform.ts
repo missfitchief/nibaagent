@@ -24,7 +24,6 @@ export const PLATFORM_KEYS = {
   DEFAULT_ANTHROPIC_MODEL: { secret: false, env: "" },
   // platform_key_only | business_key_allowed | business_key_required
   AI_USAGE_MODE: { secret: false, env: "AI_USAGE_MODE" },
-  N8N_WEBHOOK_URL: { secret: false, env: "N8N_WEBHOOK_URL" },
   // email verification / transactional email
   EMAIL_MODE: { secret: false, env: "EMAIL_MODE" }, // dev | resend | smtp
   EMAIL_FROM: { secret: false, env: "EMAIL_FROM" },

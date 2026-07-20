@@ -21,7 +21,7 @@ const KnowledgeCreate = z.object({
 export async function createKnowledgeAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const parsed = KnowledgeCreate.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: "Give the entry a title (and content)." };
-  const { business } = await requireBusiness(parsed.data.businessId);
+  const { business } = await requireBusiness(parsed.data.businessId, "admin");
 
   const existing = await db()
     .select({ id: knowledgeSources.id })
@@ -95,7 +95,7 @@ const KnowledgeDelete = z.object({ businessId: z.string().uuid(), id: z.string()
 export async function deleteKnowledgeAction(formData: FormData): Promise<void> {
   const parsed = KnowledgeDelete.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return;
-  const { business } = await requireBusiness(parsed.data.businessId);
+  const { business } = await requireBusiness(parsed.data.businessId, "admin");
   // Archive, don't hard-delete: keeps audit trail and n8n prompt caches sane.
   await db()
     .update(knowledgeSources)

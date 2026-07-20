@@ -26,7 +26,7 @@ const TestInput = z.object({ businessId: z.string().uuid(), message: z.string().
 export async function testBotAction(_prev: TestState, formData: FormData): Promise<TestState> {
   const parsed = TestInput.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: "Type a test message first." };
-  const { business } = await requireBusiness(parsed.data.businessId);
+  const { business } = await requireBusiness(parsed.data.businessId, "admin");
   try {
     // Synthetic per-business sender: the test bot exercises the SAME conversation
     // memory as a real customer thread, without touching Meta.
@@ -78,7 +78,7 @@ const ImageTestInput = z.object({
 export async function testImageRecognitionAction(_prev: ImageTestState, formData: FormData): Promise<ImageTestState> {
   const parsed = ImageTestInput.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: "Unesite ispravan URL slike (https://…)." };
-  const { business } = await requireBusiness(parsed.data.businessId); // tenant authz chokepoint
+  const { business } = await requireBusiness(parsed.data.businessId, "admin"); // tenant authz chokepoint
   try {
     const result = await diagnoseImageRecognition(business.id, parsed.data.imageUrl, parsed.data.message);
     return { result };
@@ -93,7 +93,7 @@ const TelegramTest = z.object({ businessId: z.string().uuid() });
 export async function telegramTestAction(_prev: { ok?: boolean; error?: string }, formData: FormData) {
   const parsed = TelegramTest.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: "Invalid request." };
-  const { business } = await requireBusiness(parsed.data.businessId);
+  const { business } = await requireBusiness(parsed.data.businessId, "admin");
   // Per-business token first, platform token as fallback (never one business's
   // token used to reach another's chat — resolveTelegram is business-scoped).
   const tg = await resolveTelegram(business.id, business.telegramChannelId);

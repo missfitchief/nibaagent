@@ -1,11 +1,15 @@
 import "server-only";
+import { eq } from "drizzle-orm";
+import { db } from "./db/client";
+import { businesses, users } from "./db/schema";
 import { env } from "./env";
 import { logEvent } from "./meta";
+import { sendNotificationEmail } from "./email";
 import { resolveTelegram } from "./secrets";
 
 /**
- * Notification provider abstraction. Telegram is implemented; WhatsApp is a
- * stub behind the same interface until a provider key is configured.
+ * Notification provider abstraction. Telegram + email (Resend) are implemented;
+ * WhatsApp is a stub behind the same interface until a provider key is configured.
  */
 
 export interface NotifyResult {
@@ -37,6 +41,17 @@ export async function sendWhatsApp(target: string, text: string): Promise<Notify
   return { ok: false, error: "WhatsApp provider integration pending" };
 }
 
+/** The business owner's email (businesses.owner_user_id → users). "" when missing. */
+async function ownerEmail(businessId: string): Promise<string> {
+  const [row] = await db()
+    .select({ email: users.email })
+    .from(businesses)
+    .innerJoin(users, eq(businesses.ownerUserId, users.id))
+    .where(eq(businesses.id, businessId))
+    .limit(1);
+  return row?.email ?? "";
+}
+
 export async function notifyBusiness(
   business: { id: string; name: string; telegramChannelId: string; whatsappNotificationTarget: string },
   kind: "handoff" | "order" | "complaint" | "event",
@@ -53,5 +68,13 @@ export async function notifyBusiness(
   if (business.whatsappNotificationTarget) {
     const r = await sendWhatsApp(business.whatsappNotificationTarget, message);
     if (!r.ok) await logEvent(business.id, "warn", "notification", `WhatsApp notify skipped: ${r.error}`);
+  }
+  // Email to the business owner via Resend. No dedicated notification-email
+  // setting exists yet, so the account email is the target. When email is not
+  // configured (dev mode) this is a silent skip — never an error.
+  const to = await ownerEmail(business.id);
+  if (to) {
+    const r = await sendNotificationEmail(to, `NibaChat — ${business.name}: ${kind.toUpperCase()}`, message);
+    if (!r.sent && r.mode !== "dev") await logEvent(business.id, "warn", "notification", `Email notify failed: ${r.note}`);
   }
 }

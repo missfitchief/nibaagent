@@ -15,7 +15,6 @@ const EnvSchema = z.object({
   META_REDIRECT_URI: z.string().default(""), // defaults to `${APP_URL}/api/meta/callback` when empty
   META_VERIFY_TOKEN: z.string().default(""),
 
-  N8N_WEBHOOK_URL: z.string().default(""),
   OPENAI_API_KEY: z.string().default(""),
 
   /** 32-byte key (base64 or hex) for AES-256-GCM token encryption at rest. */
@@ -25,6 +24,10 @@ const EnvSchema = z.object({
 
   TELEGRAM_BOT_TOKEN: z.string().default(""),
   WHATSAPP_PROVIDER_API_KEY: z.string().default(""),
+
+  /** Platform Google Sheets bridge (one Apps Script web app, deployed once). */
+  SHEETS_BRIDGE_URL: z.string().default(""),
+  SHEETS_BRIDGE_SECRET: z.string().default(""),
 
   ADMIN_EMAIL: z.string().default(""),
   ADMIN_PASSWORD_HASH: z.string().default(""),

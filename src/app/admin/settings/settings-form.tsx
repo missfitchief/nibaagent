@@ -246,7 +246,6 @@ export function PlatformSettingsForm({
       <Card>
         <h2 className="mb-1 font-semibold">Engine &amp; notifications</h2>
         <div className="space-y-3">
-          <TextField f={F("N8N_WEBHOOK_URL")} placeholder="https://n8n.example/webhook/meta-webhook" />
           <SecretField f={F("TELEGRAM_BOT_TOKEN")} />
           <SecretField f={F("TELEGRAM_CHAT_ID")} />
         </div>

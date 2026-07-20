@@ -52,6 +52,23 @@ export const emailVerificationTokens = pgTable(
   (t) => [uniqueIndex("evt_token_hash_idx").on(t.tokenHash), index("evt_user_idx").on(t.userId)]
 );
 
+/** Hashed, single-use, expiring password-reset tokens (raw token is emailed, never stored). */
+export const passwordResetTokens = pgTable(
+  "password_reset_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    email: text("email").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [uniqueIndex("prt_token_hash_idx").on(t.tokenHash), index("prt_user_idx").on(t.userId)]
+);
+
 export const businesses = pgTable(
   "businesses",
   {

@@ -8,7 +8,7 @@ import { env } from "@/lib/env";
 import { getSession } from "@/lib/auth/session";
 import { accessForUser } from "@/lib/auth/guards";
 import { clientIdFor } from "@/lib/tenant";
-import { exchangeCodeForToken, fetchGrantedPages, logEvent, resolvedRedirectUri, subscribePageToApp, toLongLivedToken } from "@/lib/meta";
+import { exchangeCodeForToken, fetchGrantedPages, logEvent, META_TOKEN_TTL_MS, resolvedRedirectUri, subscribePageToApp, toLongLivedToken } from "@/lib/meta";
 import { safeSyncAllN8n } from "@/lib/n8n-sync";
 
 export const runtime = "nodejs";
@@ -120,6 +120,9 @@ export async function GET(request: NextRequest) {
         plan: business.plan,
         status: "active" as const,
         connectionType: "oauth" as const,
+        // Long-lived tokens last ~60 days — stamp the expiry so the health
+        // cron and the UI can warn before it lapses.
+        tokenExpiresAt: new Date(Date.now() + META_TOKEN_TTL_MS),
         updatedAt: new Date()
       };
       try {

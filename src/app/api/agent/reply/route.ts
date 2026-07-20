@@ -20,8 +20,9 @@ export const dynamic = "force-dynamic";
  * tracks order fields across messages. Without sender_id the call stays
  * stateless (legacy payload, fully backward compatible).
  *
- * Optional shared-secret gate: set AGENT_WEBHOOK_SECRET and have n8n send it in
- * the `x-agent-secret` header. Never returns tokens or secrets.
+ * Shared-secret gate (FAIL CLOSED): AGENT_WEBHOOK_SECRET must be set and n8n
+ * must send it in the `x-agent-secret` header. Unset or mismatched → 401.
+ * Never returns tokens or secrets.
  */
 const Payload = z.object({
   client_id: z.string().min(1).max(200),
@@ -34,7 +35,7 @@ const Payload = z.object({
 
 export async function POST(request: NextRequest) {
   const secret = process.env.AGENT_WEBHOOK_SECRET ?? "";
-  if (secret && (request.headers.get("x-agent-secret") ?? "") !== secret) {
+  if (!secret || (request.headers.get("x-agent-secret") ?? "") !== secret) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

@@ -15,12 +15,19 @@ export default function LoginPage() {
         subtitle="Log in to your NibaChat Agent dashboard."
         submitLabel="Log in"
         footer={
-          <>
-            New here?{" "}
-            <Link href="/signup" className="text-sky-600 hover:underline">
-              Start free
-            </Link>
-          </>
+          <div className="space-y-2">
+            <div>
+              <Link href="/forgot-password" className="text-sky-600 hover:underline">
+                Zaboravljena lozinka?
+              </Link>
+            </div>
+            <div>
+              New here?{" "}
+              <Link href="/signup" className="text-sky-600 hover:underline">
+                Start free
+              </Link>
+            </div>
+          </div>
         }
       />
     </main>

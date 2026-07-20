@@ -7,6 +7,7 @@ import { db } from "../db/client";
 import { botSettings, businesses } from "../db/schema";
 import { requireBusiness } from "../auth/guards";
 import { safeSyncTenantConfig, safeSyncLearningMemories } from "../n8n-sync";
+import { isSheetTargetUrl } from "../sheets-sync";
 import { sanitizeModel, isProvider } from "../models";
 import type { BusinessHours } from "../hours";
 import type { ActionState } from "./business";
@@ -26,7 +27,7 @@ const BotSettingsInput = z.object({
   aiStrategy: z.enum(["rules_first", "balanced", "ai_heavy"]).default("rules_first"),
   persiranje: z.coerce.boolean().default(false),
   imageRecognitionEnabled: z.coerce.boolean().default(false),
-  replyDelaySeconds: z.coerce.number().int().min(0).max(600).default(0),
+  replyDelaySeconds: z.coerce.number().int().min(0).max(30).default(0),
   unknownBehavior: z.enum(["offer_handoff", "ask_rephrase", "generic_help"]).default("offer_handoff"),
   handoffThreshold: z.coerce.number().int().min(0).max(100).default(40),
   businessHoursEnabled: z.coerce.boolean().default(false),
@@ -39,7 +40,7 @@ export async function updateBotSettingsAction(_prev: ActionState, formData: Form
   const parsed = BotSettingsInput.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: "Invalid input." };
   const d = parsed.data;
-  const { business } = await requireBusiness(d.businessId); // authz chokepoint
+  const { business } = await requireBusiness(d.businessId, "admin"); // authz chokepoint (owner/admin only — mutates bot behavior)
 
   const words = d.handoffWords
     .split(/[,\n]/)
@@ -95,7 +96,7 @@ const AiModeInput = z.object({
 export async function setAiModeAction(formData: FormData): Promise<void> {
   const parsed = AiModeInput.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return;
-  const { business } = await requireBusiness(parsed.data.businessId);
+  const { business } = await requireBusiness(parsed.data.businessId, "admin");
   await db()
     .update(businesses)
     .set({ aiMode: parsed.data.aiMode, aiEnabled: parsed.data.aiMode !== "paused", updatedAt: new Date() })
@@ -117,10 +118,10 @@ const BusinessSettingsInput = z.object({
 export async function updateBusinessSettingsAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const parsed = BusinessSettingsInput.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: "Invalid input — check the fields and try again." };
-  if (parsed.data.googleSheetUrl && !/^https:\/\/docs\.google\.com\/spreadsheets\//.test(parsed.data.googleSheetUrl)) {
-    return { error: "Google Sheet URL must look like https://docs.google.com/spreadsheets/…" };
+  if (parsed.data.googleSheetUrl && !isSheetTargetUrl(parsed.data.googleSheetUrl)) {
+    return { error: "URL mora biti Google tabela (https://docs.google.com/spreadsheets/…) ili Apps Script web-app link (https://script.google.com/macros/…/exec)." };
   }
-  const { business } = await requireBusiness(parsed.data.businessId);
+  const { business } = await requireBusiness(parsed.data.businessId, "admin");
   await db()
     .update(businesses)
     .set({

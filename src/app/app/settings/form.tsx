@@ -52,7 +52,9 @@ export function SettingsForm({
             placeholder="https://docs.google.com/spreadsheets/d/…"
           />
           <p className="mt-1 text-xs text-[var(--ink-soft)]">
-            Collected orders are appended to this sheet. They are always saved in NibaChat too, so nothing is lost if the sheet fails.
+            Paste your Google Sheet link (share it with the bridge account as instructed) — collected orders are appended
+            automatically. An Apps Script /exec URL also works. Orders are always saved in NibaChat too, so nothing is lost if
+            the sheet fails.
           </p>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
@@ -60,6 +62,9 @@ export function SettingsForm({
             <Label htmlFor="telegramChannelId">Telegram chat/channel ID (optional)</Label>
             <Input id="telegramChannelId" name="telegramChannelId" defaultValue={defaults.telegramChannelId} placeholder="-1001234567890" />
           </div>
+          {/* WhatsApp notifications are not implemented yet (notify.ts has only a
+              stub that always errors) — the field stays hidden until a provider
+              is wired. The column + action still accept the value.
           <div>
             <Label htmlFor="whatsappNotificationTarget">WhatsApp number (optional)</Label>
             <Input
@@ -69,6 +74,7 @@ export function SettingsForm({
               placeholder="+38761123456"
             />
           </div>
+          */}
         </div>
         <ErrorNote>{state.error}</ErrorNote>
         {state.ok && <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">Saved ✓</p>}

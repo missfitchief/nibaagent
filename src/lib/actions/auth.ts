@@ -8,7 +8,8 @@ import { businesses, users } from "../db/schema";
 import { hashPassword, verifyPassword } from "../auth/password";
 import { createSession, destroySession, getSession } from "../auth/session";
 import { canResendVerification, createVerificationToken, isEmailVerified } from "../verification";
-import { sendVerificationEmail } from "../email";
+import { canRequestPasswordReset, createPasswordResetToken, resetPasswordWithToken } from "../password-reset";
+import { sendPasswordResetEmail, sendVerificationEmail } from "../email";
 import { resolvePlatform } from "../platform";
 import { logEvent } from "../meta";
 import { env } from "../env";
@@ -123,4 +124,53 @@ export async function resendVerificationAction(_prev: ResendState, _formData: Fo
 export async function logoutAction(): Promise<void> {
   await destroySession();
   redirect("/");
+}
+
+export interface PasswordResetRequestState {
+  ok?: boolean;
+  error?: string;
+  note?: string;
+}
+
+const ResetRequest = z.object({
+  email: z.string().email().max(200).transform((v) => v.toLowerCase().trim())
+});
+
+/**
+ * "Forgot password" — mints a hashed, expiring token and emails the reset link.
+ * Always answers with the same generic success so the endpoint never reveals
+ * whether an account exists. Rate-limited to one email per 60s per account.
+ */
+export async function requestPasswordResetAction(_prev: PasswordResetRequestState, formData: FormData): Promise<PasswordResetRequestState> {
+  const parsed = ResetRequest.safeParse({ email: formData.get("email") });
+  if (!parsed.success) return { error: "Unesite ispravnu email adresu." };
+  const genericOk: PasswordResetRequestState = { ok: true, note: "Ako nalog sa ovom adresom postoji, poslali smo link za resetovanje lozinke." };
+
+  const [user] = await db().select().from(users).where(eq(users.email, parsed.data.email)).limit(1);
+  if (!user) return genericOk; // don't leak account existence
+  if (!(await canRequestPasswordReset(user.id))) return genericOk; // silently rate-limit
+
+  const appUrl = (await resolvePlatform("APP_URL")).value || "https://nibaagent.vercel.app";
+  const token = await createPasswordResetToken(user.id, user.email);
+  const resetUrl = `${appUrl.replace(/\/$/, "")}/reset-password?token=${token}`;
+  const mail = await sendPasswordResetEmail(user.email, user.name, resetUrl);
+  await logEvent(null, mail.sent ? "info" : "warn", "system", `Email za resetovanje lozinke (${mail.mode}) za ${user.email}: ${mail.note}`, { email: user.email, mode: mail.mode, sent: mail.sent });
+  return mail.mode === "dev" ? { ...genericOk, note: `${genericOk.note} (dev režim: link je u logovima.)` } : genericOk;
+}
+
+export interface PasswordResetState {
+  ok?: boolean;
+  error?: string;
+}
+
+/** Set a new password from a valid reset token (single-use, expiring). */
+export async function resetPasswordAction(_prev: PasswordResetState, formData: FormData): Promise<PasswordResetState> {
+  const token = String(formData.get("token") ?? "");
+  const password = String(formData.get("password") ?? "");
+  const confirm = String(formData.get("confirm") ?? "");
+  if (password !== confirm) return { error: "Lozinke se ne poklapaju." };
+  const result = await resetPasswordWithToken(token, password);
+  if (!result.ok) return { error: result.error };
+  await logEvent(null, "info", "system", "Lozinka je resetovana preko linka za resetovanje");
+  return { ok: true };
 }
