@@ -17,6 +17,24 @@ function tokens(s: string): Set<string> {
   );
 }
 
+/** Shortest prefix two tokens have in common. */
+function commonPrefixLen(a: string, b: string): number {
+  let i = 0;
+  const n = Math.min(a.length, b.length);
+  while (i < n && a[i] === b[i]) i++;
+  return i;
+}
+
+// Serbian/Bosnian/Croatian nouns decline (narukvica/narukvice/narukvicu/narukvicom…);
+// exact token equality alone misses a customer's word against a product title in a
+// different case. A shared prefix of this length is treated as the same word —
+// long enough to avoid coincidental matches between unrelated short words.
+const STEM_MIN_LEN = 5;
+
+function tokenMatches(a: string, b: string): boolean {
+  return a === b || commonPrefixLen(a, b) >= STEM_MIN_LEN;
+}
+
 export interface ProductMatch {
   product: ProductRow;
   score: number;
@@ -30,6 +48,7 @@ export interface ProductMatch {
 export async function matchProducts(businessId: string, message: string): Promise<ProductMatch[]> {
   const msg = tokens(message);
   if (!msg.size) return [];
+  const msgTokens = [...msg];
   const rows = await db()
     .select()
     .from(products)
@@ -38,7 +57,7 @@ export async function matchProducts(businessId: string, message: string): Promis
   for (const p of rows) {
     const nameTokens = [...tokens(p.title)];
     if (!nameTokens.length) continue;
-    const nameHits = nameTokens.filter((t) => msg.has(t)).length;
+    const nameHits = nameTokens.filter((t) => msgTokens.some((mt) => tokenMatches(mt, t))).length;
     let score = nameHits * 2;
     if (p.sku && msg.has(p.sku.toLowerCase())) score += 4;
     for (const tag of (p.tags as string[]) ?? []) if (msg.has(String(tag).toLowerCase())) score += 0.5;

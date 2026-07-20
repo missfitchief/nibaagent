@@ -43,6 +43,42 @@ describe("products: business isolation + fact source", () => {
   });
 });
 
+describe("products: noun-case matching (sr/bs/hr)", () => {
+  // Regression for a real prod bug: a customer asked "koja je cena narukvice"
+  // (genitive case) and the bot confidently quoted the price of a DIFFERENT
+  // bracelet, because exact-token matching only matched the one product whose
+  // title happened to end in "-e" too — the other two bracelets, spelled with
+  // a different case ending, never made it into the AI's product data at all.
+  let db: TestDb;
+  let C: Awaited<ReturnType<typeof seedBusiness>>;
+
+  beforeAll(async () => {
+    db = await makeDb();
+    C = await seedBusiness(db, "Gamma");
+    await createProduct(C.business.id, { title: "Magnetne Narukvice - Spoj Srca", price: 35.9, currency: "BAM", stockStatus: "available" });
+    await createProduct(C.business.id, { title: "Soul - Magnetna narukvica za parove", price: 33.9, currency: "BAM", stockStatus: "available" });
+    await createProduct(C.business.id, {
+      title: "Moja Prica - Personalizovana narukvica od nerdjajuceg celika i koze",
+      price: 37.9,
+      currency: "BAM",
+      stockStatus: "available"
+    });
+  });
+
+  it("a generic question surfaces every bracelet, not just the one matching by coincidence", async () => {
+    const hits = await matchProducts(C.business.id, "koja je cena narukvice");
+    const titles = hits.map((m) => m.product.title);
+    expect(titles).toContain("Magnetne Narukvice - Spoj Srca");
+    expect(titles).toContain("Soul - Magnetna narukvica za parove");
+    expect(titles).toContain("Moja Prica - Personalizovana narukvica od nerdjajuceg celika i koze");
+  });
+
+  it("still matches the plain nominative form", async () => {
+    const hits = await matchProducts(C.business.id, "imate li narukvica na sniženju");
+    expect(hits.map((m) => m.product.title)).toContain("Soul - Magnetna narukvica za parove");
+  });
+});
+
 describe("member roles + secret access", () => {
   // Role logic mirrors lib/auth/guards.ts canManageSecrets / canEdit.
   const FULL = ["owner", "admin"];
