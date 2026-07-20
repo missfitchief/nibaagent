@@ -360,12 +360,16 @@ describe("meta webhook processor", () => {
     it("image: the answering model receives the photo directly (like n8n did)", async () => {
       const bodies: Array<{ model: string; messages: Array<{ role: string; content: unknown }> }> = [];
       const realFetch = globalThis.fetch;
-      globalThis.fetch = (async (_url: string | URL, init?: RequestInit) => {
-        bodies.push(JSON.parse(String(init?.body ?? "{}")));
-        return new Response(JSON.stringify({ choices: [{ message: { content: "Crna kožna torba sa zlatnom kopčom, dostupna je." } }], usage: { total_tokens: 20 } }), {
-          status: 200,
-          headers: { "content-type": "application/json" }
-        });
+      globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+        if (String(url).includes("api.openai.com")) {
+          bodies.push(JSON.parse(String(init?.body ?? "{}")));
+          return new Response(JSON.stringify({ choices: [{ message: { content: "Crna kožna torba sa zlatnom kopčom, dostupna je." } }], usage: { total_tokens: 20 } }), {
+            status: 200,
+            headers: { "content-type": "application/json" }
+          });
+        }
+        // The image download itself — Meta's CDN, not OpenAI's API.
+        return new Response(new Uint8Array([1, 2, 3, 4]), { status: 200, headers: { "content-type": "image/jpeg" } });
       }) as typeof fetch;
       try {
         const r = await processMetaWebhook(messengerImagePayload(PAGE1, "cust-img", "img-1", "https://cdn.meta/torba.jpg"), fastDeps);
@@ -376,8 +380,38 @@ describe("meta webhook processor", () => {
         const lastMsg = answer.messages[answer.messages.length - 1];
         expect(Array.isArray(lastMsg.content)).toBe(true);
         const parts = lastMsg.content as Array<{ type: string; image_url?: { url: string } }>;
-        expect(parts.some((p) => p.type === "image_url" && p.image_url?.url === "https://cdn.meta/torba.jpg")).toBe(true);
+        // The raw Facebook CDN URL is never handed to OpenAI directly — their
+        // downloader can't reliably reach it. We fetch it ourselves and pass
+        // a self-contained data: URL instead.
+        expect(parts.some((p) => p.type === "image_url" && p.image_url?.url.startsWith("data:image/"))).toBe(true);
         expect(sent[0].text).toContain("torba");
+      } finally {
+        globalThis.fetch = realFetch;
+      }
+    });
+
+    it("image download fails (Meta CDN unreachable): never crashes into the silent apology", async () => {
+      const realFetch = globalThis.fetch;
+      globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+        if (String(url).includes("api.openai.com")) {
+          // The answering call must never receive an image part when the
+          // download failed — array content here would mean we tried to
+          // hand OpenAI a URL it can't reach, reintroducing the original bug.
+          const body = JSON.parse(String(init?.body ?? "{}"));
+          const lastContent = body.messages?.at(-1)?.content;
+          expect(Array.isArray(lastContent)).toBe(false);
+          return new Response(JSON.stringify({ choices: [{ message: { content: "Možete li opisati artikal rečima?" } }], usage: { total_tokens: 10 } }), {
+            status: 200,
+            headers: { "content-type": "application/json" }
+          });
+        }
+        // Simulate exactly what prompted this fix: Meta's CDN rejects the download.
+        return new Response("forbidden", { status: 403 });
+      }) as typeof fetch;
+      try {
+        const r = await processMetaWebhook(messengerImagePayload(PAGE1, "cust-img-fail", "img-fail-1", "https://cdn.meta/unreachable.jpg"), fastDeps);
+        expect(r.replied).toBe(1);
+        expect(sent[0].text).not.toMatch(/tehničkih poteškoća/i);
       } finally {
         globalThis.fetch = realFetch;
       }

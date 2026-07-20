@@ -57,6 +57,30 @@ import {
 export const HISTORY_LIMIT = 15;
 /** Human takeover silence window after a handoff trigger (Meta 24h rule). */
 const HUMAN_TAKEOVER_MS = 24 * 60 * 60 * 1000;
+/** Cap on downloaded customer photos — vision models don't need more. */
+const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
+
+/**
+ * Facebook/Instagram attachment CDN URLs (scontent.xx.fbcdn.net) are frequently
+ * unreachable by third parties — OpenAI's own image downloader gets rejected or
+ * times out fetching them, which used to throw and kill the whole reply. We
+ * fetch the bytes ourselves (same network path Meta already trusts us on) and
+ * hand the model a self-contained data: URL instead, so nothing downstream has
+ * to fetch that URL again. Returns null (never throws) on any failure.
+ */
+async function fetchImageAsDataUrl(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 (compatible; NibaChatBot/1.0; +https://nibaagent.vercel.app)" } });
+    if (!res.ok) return null;
+    const contentType = res.headers.get("content-type") || "image/jpeg";
+    if (!contentType.startsWith("image/")) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.byteLength === 0 || buf.byteLength > MAX_IMAGE_BYTES) return null;
+    return `data:${contentType};base64,${buf.toString("base64")}`;
+  } catch {
+    return null;
+  }
+}
 
 export interface EngineResult {
   intent: "handoff" | "faq" | "order" | "ai" | "no_ai" | "unknown" | "off_hours" | "limit";
@@ -387,19 +411,26 @@ export async function runEngine(businessId: string, message: string, opts: Engin
     return persistReply(withSend({ ...base, intent: "no_ai", reply }));
   }
 
-  // 0d. recognition ON + an image URL present → describe it with THIS tenant's
-  // own vision model/key and fold the description into the query, so every
-  // downstream match stays scoped to this tenant's catalog/knowledge.
+  // 0d. recognition ON + an image URL present → download it ourselves (Meta's
+  // CDN links are often unreachable by third parties, incl. OpenAI's own
+  // downloader) and describe it with THIS tenant's own vision model/key,
+  // folding the description into the query so downstream matches stay scoped
+  // to this tenant's catalog/knowledge.
+  let imageDataUrl: string | undefined;
   if (opts.imageUrl && settings?.imageRecognitionEnabled) {
     const visionModel =
       sanitizeModel((await resolvePlatform("DEFAULT_VISION_MODEL")).value) ||
       (provider === "anthropic" ? "claude-3-5-sonnet-latest" : APP_DEFAULT_VISION_MODEL);
     await logEvent(businessId, "info", "ai_reply", `image_url primljen — prepoznavanje uključeno (model ${visionModel})`, { visionModel });
+    imageDataUrl = opts.describeImage ? opts.imageUrl : (await fetchImageAsDataUrl(opts.imageUrl)) ?? undefined;
+    if (!imageDataUrl) {
+      await logEvent(businessId, "warn", "ai_reply", "Slika nije mogla biti preuzeta — nastavljam bez prepoznavanja slike");
+    }
     const describe = opts.describeImage ?? ((url: string) => describeImageWithTenantKey(businessId, url, provider, visionModel));
-    const desc = await describe(opts.imageUrl).catch(() => null);
+    const desc = imageDataUrl ? await describe(imageDataUrl).catch(() => null) : null;
     if (desc) {
       message = `${message ? message + " " : ""}[Slika prikazuje: ${desc}]`.trim();
-    } else {
+    } else if (imageDataUrl) {
       await logEvent(businessId, "warn", "ai_reply", "Slika nije mogla biti analizirana — nastavljam bez prepoznavanja slike");
     }
   }
@@ -685,7 +716,7 @@ export async function runEngine(businessId: string, message: string, opts: Engin
   // final turn — it identifies the item itself instead of trusting a lossy
   // text description (this is what made n8n answers accurate).
   const visionCapable = provider === "openai" && /^(gpt-4o|gpt-4\.1|gpt-5|o[134])/i.test(model);
-  const imageForModel = opts.imageUrl && visionCapable ? opts.imageUrl : undefined;
+  const imageForModel = imageDataUrl && visionCapable ? imageDataUrl : undefined;
   const systemFinal = imageForModel
     ? `${system}\n\nA customer photo is attached to the last message — trust what YOU see in it (colors, model, design) over any text description of it.`
     : system;
