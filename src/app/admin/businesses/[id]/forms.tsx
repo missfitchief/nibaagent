@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { adminManualConnectionAction, adminMoveConnectionAction, adminUpdateBusinessAction } from "@/lib/actions/admin";
+import { adminManualConnectionAction, adminMoveConnectionAction, adminResubscribeWebhookAction, adminUpdateBusinessAction } from "@/lib/actions/admin";
 import { telegramTestAction, testImageRecognitionAction, type ImageTestState } from "@/lib/actions/tools";
 import { deleteBusinessAction } from "@/lib/actions/danger";
 import type { ActionState } from "@/lib/actions/business";
@@ -200,11 +200,15 @@ interface TestConnResult {
   facebookDetail?: string;
   instagramDirect?: string;
   instagramDetail?: string;
+  webhookSubscribed?: boolean;
+  webhookSubscribedFields?: string[];
+  webhookSubscribeError?: string | null;
   error?: string;
 }
 
 export function TestConnectionButton({ businessId }: { businessId: string }) {
   const [state, setState] = useState<{ loading: boolean; res?: TestConnResult; err?: string }>({ loading: false });
+  const [resubState, resubAction, resubPending] = useActionState<ActionState, FormData>(adminResubscribeWebhookAction, {});
   const run = async () => {
     setState({ loading: true });
     try {
@@ -229,6 +233,11 @@ export function TestConnectionButton({ businessId }: { businessId: string }) {
             <div className="grid gap-1">
               <Row k="Facebook Messenger" v={r.facebookMessenger ?? "—"} tone={r.facebookMessenger === "OK" ? "ok" : "error"} />
               <Row k="Instagram Direct" v={r.instagramDirect ?? "—"} tone={r.instagramDirect === "OK" ? "ok" : r.instagramDirect === "N/A" ? "warn" : "error"} />
+              <Row
+                k="Webhook subscription (poruke stvarno stižu?)"
+                v={r.webhookSubscribed ? `OK (${(r.webhookSubscribedFields ?? []).join(", ")})` : r.webhookSubscribeError ? `Error: ${r.webhookSubscribeError}` : "NIJE pretplaćeno — poruke se NEĆE primati"}
+                tone={r.webhookSubscribed ? "ok" : "error"}
+              />
               <Row k="client_id" v={r.client_id ?? "—"} />
               <Row k="page_id" v={r.page_id ?? "—"} />
               <Row k="page_name" v={r.page_name ?? "—"} />
@@ -236,6 +245,16 @@ export function TestConnectionButton({ businessId }: { businessId: string }) {
               {r.facebookMessenger !== "OK" && r.facebookDetail && <Row k="FB detail" v={r.facebookDetail} tone="error" />}
               {r.instagramDirect === "Error" && r.instagramDetail && <Row k="IG detail" v={r.instagramDetail} tone="error" />}
             </div>
+          )}
+          {r.connected !== false && !r.webhookSubscribed && (
+            <form action={resubAction} className="mt-3 border-t border-[var(--card-border)] pt-3">
+              <input type="hidden" name="businessId" value={businessId} />
+              <Button type="submit" variant="danger" disabled={resubPending}>
+                {resubPending ? "Pretplaćujem…" : "Popravi — ponovo pretplati webhook"}
+              </Button>
+              {resubState.ok && <p className="mt-2 text-sm text-emerald-700">Pretplaćeno ✓ — klikni Test connection ponovo da potvrdiš.</p>}
+              {resubState.error && <p className="mt-2 text-sm text-rose-600">{resubState.error}</p>}
+            </form>
           )}
         </div>
       )}

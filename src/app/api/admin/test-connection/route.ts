@@ -5,6 +5,7 @@ import { metaConnections } from "@/lib/db/schema";
 import { decryptToken } from "@/lib/crypto";
 import { getSession } from "@/lib/auth/session";
 import { accessForUser } from "@/lib/auth/guards";
+import { checkPageSubscription } from "@/lib/meta";
 
 /**
  * Validate a saved Meta connection against the Graph API. Reads meta_connections
@@ -87,6 +88,10 @@ export async function GET(request: NextRequest) {
   const ig = conn.instagramBusinessAccountId
     ? await graphOk(`${G}/${conn.instagramBusinessAccountId}?fields=username&access_token=${encodeURIComponent(pageToken)}`)
     : null;
+  // The page/IG account being reachable (above) only proves the TOKEN works —
+  // it does NOT prove Meta will actually deliver webhook events to us. That's
+  // a separate, silently-droppable subscription that must be checked directly.
+  const sub = await checkPageSubscription(conn.pageId, pageToken);
 
   return NextResponse.json({
     ok: true,
@@ -103,6 +108,9 @@ export async function GET(request: NextRequest) {
     facebookMessenger: fb.ok ? "OK" : "Error",
     facebookDetail: fb.ok ? fb.detail : fb.detail.slice(0, 160),
     instagramDirect: ig ? (ig.ok ? "OK" : "Error") : "N/A",
-    instagramDetail: ig ? (ig.ok ? ig.detail : ig.detail.slice(0, 160)) : "no IG account linked"
+    instagramDetail: ig ? (ig.ok ? ig.detail : ig.detail.slice(0, 160)) : "no IG account linked",
+    webhookSubscribed: sub.subscribed,
+    webhookSubscribedFields: sub.fields,
+    webhookSubscribeError: sub.error ?? null
   });
 }

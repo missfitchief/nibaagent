@@ -8,9 +8,10 @@ import { db } from "../db/client";
 import { adminAuditLogs, botSettings, businesses, eventLogs, metaConnections, PLANS, subscriptions, users } from "../db/schema";
 import { requireAdmin } from "../auth/guards";
 import { hashPassword } from "../auth/password";
-import { encryptToken, uuid } from "../crypto";
+import { encryptToken, decryptToken, uuid } from "../crypto";
 import { sanitizeModel, APP_DEFAULT_MODEL } from "../models";
 import { clientIdFor } from "../tenant";
+import { subscribePageToApp } from "../meta";
 import type { ActionState } from "./business";
 
 async function audit(adminUserId: string, action: string, targetId: string, metadata: Record<string, unknown> = {}) {
@@ -210,5 +211,34 @@ export async function adminMoveConnectionAction(_prev: ActionState, formData: Fo
   await audit(admin.userId, "connection.move", businessId, { pageId, fromClientId: existing.clientId, toClientId: clientId });
   await db().insert(eventLogs).values({ businessId, level: "warn", area: "meta_oauth", message: `Connection for page ${pageId} moved to client_id=${clientId} (from ${existing.clientId})`, metadata: { by: admin.email } });
   revalidatePath(`/admin/businesses/${businessId}`);
+  return { ok: true };
+}
+
+const Resubscribe = z.object({ businessId: z.string().uuid() });
+
+/**
+ * Re-run the Meta webhook subscription for this business's connected page.
+ * Meta can silently drop a page's subscription (token rotation, page re-auth
+ * on the customer's side, app review changes) with no error on our end —
+ * the first sign is customer messages just never arriving. Re-POSTing
+ * subscribed_apps is safe to run any time, subscribed or not.
+ */
+export async function adminResubscribeWebhookAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const admin = await requireAdmin();
+  const parsed = Resubscribe.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return { error: "Invalid request." };
+  const [conn] = await db().select().from(metaConnections).where(eq(metaConnections.businessId, parsed.data.businessId)).limit(1);
+  if (!conn) return { error: "No connection found for this business." };
+  if (!conn.encryptedPageAccessToken) return { error: "No page access token stored for this connection." };
+  try {
+    const pageToken = decryptToken(conn.encryptedPageAccessToken);
+    await subscribePageToApp(conn.pageId, pageToken);
+  } catch (err) {
+    await db().insert(eventLogs).values({ businessId: parsed.data.businessId, level: "error", area: "meta_oauth", message: `Manual re-subscribe failed for page ${conn.pageId}: ${(err as Error).message}`, metadata: { by: admin.email } });
+    return { error: `Re-subscribe failed: ${(err as Error).message}` };
+  }
+  await audit(admin.userId, "connection.resubscribe", parsed.data.businessId, { pageId: conn.pageId });
+  await db().insert(eventLogs).values({ businessId: parsed.data.businessId, level: "info", area: "meta_oauth", message: `Webhook re-subscribed for page ${conn.pageId} (manual, by ${admin.email})` });
+  revalidatePath(`/admin/businesses/${parsed.data.businessId}`);
   return { ok: true };
 }

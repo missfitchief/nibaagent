@@ -114,6 +114,26 @@ export async function subscribePageToApp(pageId: string, pageToken: string): Pro
   if (!body.success) throw new Error(body.error?.message ?? "subscribed_apps failed");
 }
 
+/**
+ * GET the page's actual current webhook subscription (as opposed to
+ * subscribePageToApp, which only ever POSTs and assumes success) — this is
+ * the only way to see whether Meta has silently dropped the subscription
+ * after it was first granted (happens on token rotation, page re-auth, or
+ * Meta-side app review changes) without a customer message actually failing
+ * to arrive first.
+ */
+export async function checkPageSubscription(pageId: string, pageToken: string): Promise<{ subscribed: boolean; fields: string[]; error?: string }> {
+  try {
+    const res = await fetch(`${G}/${pageId}/subscribed_apps?access_token=${encodeURIComponent(pageToken)}`);
+    const body = (await res.json()) as { data?: Array<{ subscribed_fields?: string[] }>; error?: { message?: string } };
+    if (!res.ok || body.error) return { subscribed: false, fields: [], error: body.error?.message ?? `graph_${res.status}` };
+    const fields = body.data?.[0]?.subscribed_fields ?? [];
+    return { subscribed: fields.includes("messages"), fields };
+  } catch (err) {
+    return { subscribed: false, fields: [], error: (err as Error).message };
+  }
+}
+
 export async function logEvent(
   businessId: string | null,
   level: "info" | "warn" | "error",
