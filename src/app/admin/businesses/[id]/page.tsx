@@ -22,9 +22,9 @@ import { resolveProviderRuntimeConfig } from "@/lib/ai-runtime";
 import { listBusinessLogs } from "@/lib/logs";
 import { BusinessLogs } from "@/components/business-logs";
 import { missingSetup, setupChecklist } from "@/lib/checklist";
-import { deleteKnowledgeAction } from "@/lib/actions/knowledge";
 import { BotSettingsForm } from "@/app/app/bot/form";
 import { KnowledgeForm } from "@/app/app/knowledge/form";
+import { KnowledgeEditRow } from "@/app/app/knowledge/edit-row";
 import { IngestPanel } from "@/app/app/knowledge/ingest";
 import { WebsiteKnowledgeForm } from "@/app/app/knowledge/website";
 import { listMembers, removeMemberAction } from "@/lib/actions/members";
@@ -403,21 +403,20 @@ export default async function AdminBusinessDetail({
           <WebsiteKnowledgeForm businessId={biz.id} />
           <IngestPanel businessId={biz.id} />
           {knowledgeRows.length > 0 && (
-            <Card>
+            <div className="space-y-2">
               <h2 className="font-semibold">Knowledge entries ({knowledgeRows.length})</h2>
-              <ul className="mt-2 space-y-2">
-                {knowledgeRows.map((s) => (
-                  <li key={s.id} className="flex items-start justify-between gap-3 rounded-lg border border-[var(--card-border)] bg-white/60 p-2 text-sm">
-                    <span className="min-w-0"><Badge tone="info">{s.type}</Badge> <span className="font-medium">{s.title}</span></span>
-                    <form action={deleteKnowledgeAction}>
-                      <input type="hidden" name="businessId" value={biz.id} />
-                      <input type="hidden" name="id" value={s.id} />
-                      <button className="rounded-lg px-2 py-1 text-xs text-rose-600 hover:bg-rose-50">Remove</button>
-                    </form>
-                  </li>
-                ))}
-              </ul>
-            </Card>
+              {knowledgeRows.map((s) => (
+                <KnowledgeEditRow
+                  key={s.id}
+                  businessId={biz.id}
+                  id={s.id}
+                  type={s.type}
+                  title={s.title}
+                  content={s.content}
+                  sourceUrl={s.sourceUrl}
+                />
+              ))}
+            </div>
           )}
         </>
       )}

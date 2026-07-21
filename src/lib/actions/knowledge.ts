@@ -97,6 +97,33 @@ export async function createKnowledgeAction(_prev: ActionState, formData: FormDa
   return status === "error" ? { error: "Saved, but the website could not be fetched — edit it or paste content manually." } : { ok: true };
 }
 
+const KnowledgeUpdate = z.object({
+  businessId: z.string().uuid(),
+  id: z.string().uuid(),
+  title: z.string().min(1).max(200),
+  content: z.string().max(20000).default("")
+});
+
+export async function updateKnowledgeAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const parsed = KnowledgeUpdate.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return { error: "Give the entry a title (and content)." };
+  const { business } = await requireBusiness(parsed.data.businessId, "admin");
+  await db()
+    .update(knowledgeSources)
+    .set({ title: parsed.data.title.trim(), content: parsed.data.content, updatedAt: new Date() })
+    .where(and(eq(knowledgeSources.id, parsed.data.id), eq(knowledgeSources.businessId, business.id)));
+  await db().insert(eventLogs).values({
+    businessId: business.id,
+    level: "info",
+    area: "knowledge_import",
+    message: `Izmenjen izvor znanja „${parsed.data.title}"`
+  });
+  revalidatePath("/app/knowledge");
+  revalidatePath("/app");
+  revalidatePath(`/admin/businesses/${business.id}`);
+  return { ok: true };
+}
+
 const KnowledgeDelete = z.object({ businessId: z.string().uuid(), id: z.string().uuid() });
 
 export async function deleteKnowledgeAction(formData: FormData): Promise<void> {
