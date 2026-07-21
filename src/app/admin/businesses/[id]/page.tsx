@@ -446,6 +446,7 @@ export default async function AdminBusinessDetail({
                     <th className="py-2 pr-4">Channel</th>
                     <th className="py-2 pr-4">Status</th>
                     <th className="py-2 pr-4">Last activity</th>
+                    <th className="py-2 pr-4"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -455,6 +456,11 @@ export default async function AdminBusinessDetail({
                       <td className="py-2 pr-4">{c.channel}</td>
                       <td className="py-2 pr-4"><Badge tone={c.status === "handoff" ? "warn" : c.status === "closed" ? "neutral" : "ok"}>{c.status}</Badge></td>
                       <td className="py-2 pr-4">{c.lastMessageAt.toISOString().replace("T", " ").slice(0, 16)}</td>
+                      <td className="py-2 pr-4">
+                        <Link href={`/admin/businesses/${biz.id}/conversations/${c.id}`} className="text-sky-600 hover:underline">
+                          Otvori →
+                        </Link>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
