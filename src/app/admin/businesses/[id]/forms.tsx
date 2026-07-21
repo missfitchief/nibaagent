@@ -203,6 +203,10 @@ interface TestConnResult {
   webhookSubscribed?: boolean;
   webhookSubscribedFields?: string[];
   webhookSubscribeError?: string | null;
+  appWebhookConfigured?: boolean;
+  appWebhookActive?: boolean;
+  appWebhookCallbackUrl?: string;
+  appWebhookError?: string | null;
   error?: string;
 }
 
@@ -234,9 +238,14 @@ export function TestConnectionButton({ businessId }: { businessId: string }) {
               <Row k="Facebook Messenger" v={r.facebookMessenger ?? "—"} tone={r.facebookMessenger === "OK" ? "ok" : "error"} />
               <Row k="Instagram Direct" v={r.instagramDirect ?? "—"} tone={r.instagramDirect === "OK" ? "ok" : r.instagramDirect === "N/A" ? "warn" : "error"} />
               <Row
-                k="Webhook subscription (poruke stvarno stižu?)"
+                k="Webhook subscription (stranica → app)"
                 v={r.webhookSubscribed ? `OK (${(r.webhookSubscribedFields ?? []).join(", ")})` : r.webhookSubscribeError ? `Error: ${r.webhookSubscribeError}` : "NIJE pretplaćeno — poruke se NEĆE primati"}
                 tone={r.webhookSubscribed ? "ok" : "error"}
+              />
+              <Row
+                k="Webhook callback (Meta App podešavanje)"
+                v={r.appWebhookActive ? `Aktivan → ${r.appWebhookCallbackUrl}` : r.appWebhookError ? `Error: ${r.appWebhookError}` : r.appWebhookConfigured ? `Podešen ali NEAKTIVAN → ${r.appWebhookCallbackUrl}` : "Nije podešen na nivou aplikacije"}
+                tone={r.appWebhookActive ? "ok" : "error"}
               />
               <Row k="client_id" v={r.client_id ?? "—"} />
               <Row k="page_id" v={r.page_id ?? "—"} />

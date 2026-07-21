@@ -134,6 +134,34 @@ export async function checkPageSubscription(pageId: string, pageToken: string): 
   }
 }
 
+/**
+ * GET the APP-level webhook config Meta actually has on file: the callback
+ * URL it will POST to and whether the "messages" field is active there. This
+ * is a DIFFERENT layer than checkPageSubscription — a page can be correctly
+ * subscribed to the app while the app's own webhook callback URL (set once,
+ * app-wide, in the Meta App Dashboard — not per page) is stale, unverified,
+ * or pointed at an old deployment, in which case NOTHING is ever delivered
+ * to anyone, for any page, and the per-page check alone would miss it.
+ */
+export async function checkAppWebhookConfig(): Promise<{ configured: boolean; callbackUrl: string; active: boolean; error?: string }> {
+  const { appId, appSecret } = await metaCreds();
+  if (!appId || !appSecret) return { configured: false, callbackUrl: "", active: false, error: "META_APP_ID/META_APP_SECRET not set" };
+  try {
+    const res = await fetch(`${G}/${appId}/subscriptions?access_token=${encodeURIComponent(`${appId}|${appSecret}`)}`);
+    const body = (await res.json()) as {
+      data?: Array<{ object?: string; callback_url?: string; active?: boolean; fields?: Array<{ name?: string } | string> }>;
+      error?: { message?: string };
+    };
+    if (!res.ok || body.error) return { configured: false, callbackUrl: "", active: false, error: body.error?.message ?? `graph_${res.status}` };
+    const pageSub = (body.data ?? []).find((s) => s.object === "page" || s.object === "instagram");
+    if (!pageSub) return { configured: false, callbackUrl: "", active: false, error: "No page/instagram webhook subscription configured for this app at all." };
+    const fieldNames = (pageSub.fields ?? []).map((f) => (typeof f === "string" ? f : f.name ?? ""));
+    return { configured: true, callbackUrl: pageSub.callback_url ?? "", active: Boolean(pageSub.active) && fieldNames.includes("messages") };
+  } catch (err) {
+    return { configured: false, callbackUrl: "", active: false, error: (err as Error).message };
+  }
+}
+
 export async function logEvent(
   businessId: string | null,
   level: "info" | "warn" | "error",
