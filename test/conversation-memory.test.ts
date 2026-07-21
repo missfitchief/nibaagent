@@ -151,6 +151,26 @@ describe("conversation memory", () => {
     expect(parseConversationState(convo.conversationState).order?.city).toBeFalsy();
   });
 
+  it("order flow: street and town given together on one line are both captured", async () => {
+    // Regression for a real prod bug: a customer typed her whole address as
+    // one natural line ("Kozarska 36 bugojno" — street, number, town, no
+    // labels, no comma). The bare-street heuristic only matched a street with
+    // NOTHING after the house number, so the town was silently dropped and
+    // never merged into the order — the bot kept asking as if the address
+    // line had never been sent.
+    const sender = { channel: "facebook" as const, senderId: "fb-user-address" };
+    await runEngine(biz1, "Zelim da naručim", { conversation: sender });
+    const r2 = await runEngine(biz1, "Danijela Kuna", { conversation: sender });
+    const convoId = r2.conversationId!;
+
+    await runEngine(biz1, "Kozarska 36 bugojno", { conversation: sender });
+
+    const [convo] = await db.select().from(schema.conversations).where(eq(schema.conversations.id, convoId));
+    const order = parseConversationState(convo.conversationState).order;
+    expect(order?.streetAndNumber).toBe("Kozarska 36");
+    expect(order?.city).toBe("bugojno");
+  });
+
   it("AI reply: the model receives recent history — follow-up questions stay coherent", async () => {
     await db.insert(schema.knowledgeSources).values({
       businessId: biz1,

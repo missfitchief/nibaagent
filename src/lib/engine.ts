@@ -149,13 +149,16 @@ function looseOrderFields(message: string, known: OrderData): Partial<OrderData>
   const digits = t.replace(/\D/g, "");
   const hasLetters = /[A-Za-zčćžšđČĆŽŠĐ]/u.test(t);
 
-  // Bare street: letters + a short number ("Hrvatske kraljice 12"). Phones have
-  // 5+ digits and are handled by the strict extractor.
+  // Bare street: letters + a short number ("Hrvatske kraljice 12"), optionally
+  // with the town tacked on the same line — customers very commonly type the
+  // whole address as one line ("Kozarska 36 bugojno", "Hrvatske kraljice 12,
+  // Sarajevo") rather than splitting it across messages or using labels.
   if (!known.streetAndNumber && hasLetters && /\d/.test(t) && digits.length > 0 && digits.length <= 4) {
-    const m = t.match(/^([A-Za-zčćžšđČĆŽŠĐ][A-Za-zčćžšđČĆŽŠĐ .'/,-]{1,34}?\d+[a-zA-Z]?)$/u);
+    const m = t.match(/^([A-Za-zčćžšđČĆŽŠĐ][A-Za-zčćžšđČĆŽŠĐ .'/-]{1,34}?\d+[a-zA-Z]?)(?:[,\s]+([A-Za-zčćžšđČĆŽŠĐ]{2,30}))?$/u);
     if (m) {
       out.streetAndNumber = m[1].trim().replace(/[,\s]+$/, "");
-      return out; // a street line is not a name/city
+      if (!known.city && m[2] && !NON_CITY_WORDS.has(norm(m[2]))) out.city = m[2].trim();
+      return out; // a street line is not a name
     }
   }
 
