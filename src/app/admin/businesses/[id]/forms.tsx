@@ -77,13 +77,7 @@ export function AdminBusinessForm({
             <Label htmlFor="tone">Tone</Label>
             <Select name="tone" defaultValue={defaults.tone} options={["professional", "friendly", "luxury", "casual", "short", "detailed"]} />
           </div>
-          <div className="sm:col-span-2">
-            <Label htmlFor="clientId">n8n Client ID (tenant id)</Label>
-            <Input name="clientId" defaultValue={defaults.clientId} placeholder="e.g. starlight" autoComplete="off" />
-            <p className="mt-1 text-xs text-[var(--ink-soft)]">
-              Stable tenant id written to meta_connections.client_id + n8n tables. n8n loads this tenant by this value. Lowercase/dashes only.
-            </p>
-          </div>
+          <input type="hidden" name="clientId" value="" />
           <div className="flex items-end gap-2 pb-1">
             <input
               id="handoffEnabled"
@@ -113,11 +107,13 @@ export function DeleteBusinessForm({ businessId, slug }: { businessId: string; s
     <div>
       <p className="text-sm font-medium text-rose-700">Delete business permanently</p>
       <p className="mb-2 text-xs text-[var(--ink-soft)]">
-        Removes all conversations, products, knowledge, secrets and connections. Type the slug <code className="rounded bg-slate-100 px-1">{slug}</code> to confirm.
+        Removes all conversations, products, knowledge, secrets and connections. Type the slug{" "}
+        <code className="rounded bg-slate-100 px-1">{slug}</code> and enter YOUR platform admin password to confirm.
       </p>
-      <form action={formAction} className="flex gap-2">
+      <form action={formAction} className="flex flex-wrap gap-2">
         <input type="hidden" name="businessId" value={businessId} />
-        <Input name="confirm" placeholder={slug} autoComplete="off" />
+        <Input name="confirm" placeholder={slug} autoComplete="off" className="w-40" />
+        <Input name="password" type="password" placeholder="Your admin password" autoComplete="current-password" className="w-48" />
         <Button type="submit" variant="danger" disabled={pending}>
           {pending ? "Deleting…" : "Delete"}
         </Button>
@@ -273,30 +269,30 @@ export function ManualConnectionForm({ businessId }: { businessId: string }) {
       <p className="mt-1 text-xs text-[var(--ink-soft)]">
         Fallback when OAuth is not possible. Tokens are encrypted at rest and never shown again.
       </p>
-      <form action={formAction} className="mt-3 space-y-3">
+      <form action={formAction} autoComplete="off" className="mt-3 space-y-3">
         <input type="hidden" name="businessId" value={businessId} />
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
             <Label htmlFor="pageId">Page ID *</Label>
-            <Input name="pageId" required placeholder="547758538411119" autoComplete="off" />
+            <Input name="pageId" required placeholder="e.g. 547758538411119" autoComplete="one-time-code" />
           </div>
           <div>
             <Label htmlFor="pageName">Page name</Label>
-            <Input name="pageName" placeholder="Star Light Nakit" autoComplete="off" />
+            <Input name="pageName" placeholder="e.g. Your Facebook Page name" autoComplete="one-time-code" />
           </div>
         </div>
         <div>
           <Label htmlFor="pageAccessToken">Page access token</Label>
-          <Input name="pageAccessToken" type="password" placeholder="EAAG…" autoComplete="off" />
+          <Input name="pageAccessToken" type="password" placeholder="EAAG…" autoComplete="one-time-code" />
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
             <Label htmlFor="instagramBusinessAccountId">Instagram Business ID</Label>
-            <Input name="instagramBusinessAccountId" placeholder="17841…" autoComplete="off" />
+            <Input name="instagramBusinessAccountId" placeholder="e.g. 17841…" autoComplete="one-time-code" />
           </div>
           <div>
             <Label htmlFor="instagramAccessToken">Instagram token (if separate)</Label>
-            <Input name="instagramAccessToken" type="password" autoComplete="off" />
+            <Input name="instagramAccessToken" type="password" autoComplete="one-time-code" />
           </div>
         </div>
         <ErrorNote>{state.error}</ErrorNote>

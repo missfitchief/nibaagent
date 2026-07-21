@@ -128,9 +128,62 @@ export function estimateSavings(aiReplies: number): { savedMinutes: number; save
   return { savedMinutes, savedEur: Math.round(savedMinutes * minuteCost * 100) / 100 };
 }
 
-/** Rough model cost table (EUR per 1K tokens, blended in/out) for estimates. */
-export const MODEL_COST_PER_1K: Record<string, number> = {
-  "gpt-4o-mini": 0.0006,
-  "gpt-4o": 0.0075,
-  "gpt-4.1-mini": 0.0012
+/**
+ * Real per-model provider pricing (USD per 1M tokens, input/output split —
+ * output is billed at a much higher rate than input on every provider, so a
+ * single blended number is never accurate). Source: provider pricing pages,
+ * checked 2026-07. Update this table when a provider changes prices.
+ */
+interface ModelRate {
+  in: number;
+  out: number;
+}
+
+const MODEL_RATES_USD_PER_1M: Record<string, ModelRate> = {
+  // OpenAI — gpt-4o / gpt-4.1 family
+  "gpt-4o-mini": { in: 0.15, out: 0.6 },
+  "gpt-4o": { in: 2.5, out: 10 },
+  "gpt-4.1": { in: 2, out: 8 },
+  "gpt-4.1-mini": { in: 0.4, out: 1.6 },
+  "gpt-4.1-nano": { in: 0.1, out: 0.4 },
+  "gpt-3.5-turbo": { in: 0.5, out: 1.5 },
+  // OpenAI — reasoning / gpt-5 family (max_completion_tokens models)
+  "gpt-5.4-nano": { in: 0.2, out: 1.25 },
+  "gpt-5.4-mini": { in: 0.75, out: 4.5 },
+  "gpt-5.4": { in: 2.5, out: 15 },
+  "gpt-5.5": { in: 5, out: 30 },
+  "gpt-5.6-luna": { in: 1, out: 6 },
+  "gpt-5.6-terra": { in: 2.5, out: 15 },
+  "gpt-5.6-sol": { in: 5, out: 30 },
+  // Anthropic
+  "claude-3-5-sonnet-latest": { in: 3, out: 15 },
+  "claude-sonnet-4-6": { in: 3, out: 15 },
+  "claude-haiku-4-5": { in: 1, out: 5 },
+  "claude-opus-4-8": { in: 5, out: 25 },
+  "claude-fable-5": { in: 10, out: 50 }
 };
+
+/** Unknown/typed-in custom model → a mid-range guess so cost never silently reads near-zero. */
+const FALLBACK_RATE: ModelRate = { in: 1, out: 3 };
+
+/** Rough, roughly-live USD→EUR conversion. Not a real FX feed — good enough for an "estimate" label. */
+const EUR_PER_USD = 0.92;
+
+function rateFor(model: string): ModelRate {
+  return MODEL_RATES_USD_PER_1M[model] ?? FALLBACK_RATE;
+}
+
+/** Precise cost from actual prompt/completion token counts (preferred — call sites that have the split from the provider's `usage` object should always use this). */
+export function estimateCostEur(model: string, promptTokens: number, completionTokens: number): number {
+  const rate = rateFor(model);
+  const usd = (promptTokens / 1_000_000) * rate.in + (completionTokens / 1_000_000) * rate.out;
+  return Math.round(usd * EUR_PER_USD * 1_000_000) / 1_000_000;
+}
+
+/** Fallback for call sites that only have a total token count (no in/out split) — averages the model's own in/out rate instead of a flat guess. */
+export function estimateCostEurBlended(model: string, totalTokens: number): number {
+  const rate = rateFor(model);
+  const blendedPer1M = (rate.in + rate.out) / 2;
+  const usd = (totalTokens / 1_000_000) * blendedPer1M;
+  return Math.round(usd * EUR_PER_USD * 1_000_000) / 1_000_000;
+}

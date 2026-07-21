@@ -24,9 +24,11 @@ import {
   productVariants,
   products,
   subscriptions,
-  unansweredQuestions
+  unansweredQuestions,
+  users
 } from "../db/schema";
-import { canEdit, requireBusiness } from "../auth/guards";
+import { canEdit, requireAdmin, requireBusiness } from "../auth/guards";
+import { verifyPassword } from "../auth/password";
 
 /**
  * Danger-zone operations. All require owner/admin, all are audit-logged, and
@@ -103,21 +105,35 @@ export async function clearTestConversationsAction(formData: FormData): Promise<
   revalidatePath(`/admin/businesses/${business.id}`);
 }
 
-const DeleteBusiness = z.object({ businessId: z.string().uuid(), confirm: z.string(), confirmDisconnect: z.coerce.boolean().default(false) });
+const DeleteBusiness = z.object({
+  businessId: z.string().uuid(),
+  confirm: z.string(),
+  password: z.string().min(1),
+  confirmDisconnect: z.coerce.boolean().default(false)
+});
 
 /**
- * Hard delete. Platform-admin/owner only, requires typing the exact slug, and is
- * blocked while an ACTIVE Meta connection exists unless the operator confirms the
- * disconnect. Removes EVERY tenant-scoped table (FK-dependency order) so no row
- * is orphaned and no FK aborts the delete — including bot_settings, analytics,
- * subscriptions, event_logs and the n8n tables (tenant_configs / catalog_snapshots
- * / learning_memories). Strictly scoped by business_id.
+ * Hard delete. Platform-admin ONLY (never a business owner/member, even one with
+ * the "admin" business role) — requires typing the exact slug AND re-entering the
+ * platform admin's own account password (checked against their real password
+ * hash, never a hardcoded value). Blocked while an ACTIVE Meta connection exists
+ * unless the operator confirms the disconnect. Removes EVERY tenant-scoped table
+ * (FK-dependency order) so no row is orphaned and no FK aborts the delete —
+ * including bot_settings, analytics, subscriptions and event_logs. Strictly
+ * scoped by business_id.
  */
 export async function deleteBusinessAction(_prev: { error?: string; ok?: boolean }, formData: FormData) {
   const p = DeleteBusiness.safeParse(Object.fromEntries(formData));
   if (!p.success) return { error: "Neispravan zahtev." };
-  const { user, business, role } = await requireBusiness(p.data.businessId, "admin");
-  if (!canEdit(role)) return { error: "Nemate dozvolu." };
+  const admin = await requireAdmin();
+
+  const [adminRow] = await db().select({ passwordHash: users.passwordHash }).from(users).where(eq(users.id, admin.userId)).limit(1);
+  if (!adminRow || !(await verifyPassword(p.data.password, adminRow.passwordHash))) {
+    return { error: "Pogrešna lozinka." };
+  }
+
+  const [business] = await db().select().from(businesses).where(eq(businesses.id, p.data.businessId)).limit(1);
+  if (!business) return { error: "Biznis nije pronađen." };
   if (p.data.confirm.trim() !== business.slug) return { error: `Upišite tačan slug „${business.slug}" za potvrdu.` };
 
   const bid = business.id;
@@ -131,7 +147,7 @@ export async function deleteBusinessAction(_prev: { error?: string; ok?: boolean
   }
 
   // Audit BEFORE the business row goes (targetId references it as text, not FK).
-  await audit(user.userId, "business.delete", bid, { name: business.name, slug: business.slug, hadActiveConnection: Boolean(activeConn) });
+  await audit(admin.userId, "business.delete", bid, { name: business.name, slug: business.slug, hadActiveConnection: Boolean(activeConn) });
   await purgeBusinessData(bid);
   return { ok: true };
 }

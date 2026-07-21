@@ -53,6 +53,8 @@ export interface OpenAiMessage {
 export interface OpenAiChatResult {
   text: string;
   tokens: number;
+  promptTokens: number;
+  completionTokens: number;
   model: string;
   tokenParam: TokenParam;
   retried: boolean;
@@ -98,7 +100,7 @@ export async function callOpenAiChat(args: {
   let res = await attempt();
   let data = (await res.json()) as {
     choices?: Array<{ message?: { content?: string } }>;
-    usage?: { total_tokens?: number };
+    usage?: { total_tokens?: number; prompt_tokens?: number; completion_tokens?: number };
     error?: { message?: string };
   };
 
@@ -126,6 +128,8 @@ export async function callOpenAiChat(args: {
   return {
     text: data.choices?.[0]?.message?.content?.trim() ?? "",
     tokens: data.usage?.total_tokens ?? 0,
+    promptTokens: data.usage?.prompt_tokens ?? 0,
+    completionTokens: data.usage?.completion_tokens ?? 0,
     model: args.model,
     tokenParam,
     retried

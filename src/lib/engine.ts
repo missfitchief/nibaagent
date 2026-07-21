@@ -2,7 +2,7 @@ import "server-only";
 import { and, eq } from "drizzle-orm";
 import { db } from "./db/client";
 import { botSettings, businesses, conversations, handoffs, knowledgeSources, metaConnections, orders } from "./db/schema";
-import { MODEL_COST_PER_1K } from "./plans";
+import { estimateCostEur } from "./plans";
 import { resolveOpenAiKey, resolveAnthropicKey } from "./secrets";
 import { matchProducts, productFacts, variantFacts, variantsFor } from "./products";
 import { pickModel, sanitizeModel, APP_DEFAULT_MODEL, APP_DEFAULT_VISION_MODEL, type Provider } from "./models";
@@ -368,25 +368,36 @@ export async function runEngine(businessId: string, message: string, opts: Engin
     }
   }
 
+  // Image description (vision) calls burn real provider tokens even when the
+  // final reply comes from rules/knowledge, not the answering AI call — track
+  // them separately and fold them into whatever reply actually goes out below.
+  let visionTokens = 0;
+  let visionCostEur = 0;
+
   /** Persist the bot reply + roll the conversation state forward. */
   const persistReply = async (r: EngineResult, patch?: Partial<ConversationState>): Promise<EngineResult> => {
-    if (!convo) return r;
-    if (r.reply.trim()) {
+    const withVisionCost: EngineResult = {
+      ...r,
+      tokenEstimate: r.tokenEstimate + visionTokens,
+      costEstimateEur: Math.round((r.costEstimateEur + visionCostEur) * 1_000_000) / 1_000_000
+    };
+    if (!convo) return withVisionCost;
+    if (withVisionCost.reply.trim()) {
       await saveConversationMessage({
         businessId,
         conversationId: convo.id,
         channel: convo.channel as Channel,
         direction: "outbound",
-        text: r.reply,
-        intent: r.intent,
-        aiGenerated: r.aiCalled,
-        modelUsed: r.aiCalled ? r.modelUsed : "",
-        tokenEstimate: r.tokenEstimate,
-        costEstimate: r.costEstimateEur
+        text: withVisionCost.reply,
+        intent: withVisionCost.intent,
+        aiGenerated: withVisionCost.aiCalled,
+        modelUsed: withVisionCost.aiCalled ? withVisionCost.modelUsed : "",
+        tokenEstimate: withVisionCost.tokenEstimate,
+        costEstimate: withVisionCost.costEstimateEur
       });
     }
-    await updateConversationState(businessId, convo.id, { lastIntent: r.intent, ...patch });
-    return { ...r, conversationId: convo.id };
+    await updateConversationState(businessId, convo.id, { lastIntent: withVisionCost.intent, ...patch });
+    return { ...withVisionCost, conversationId: convo.id };
   };
 
   // Human takeover: staff is handling this thread — bot records but stays silent.
@@ -433,8 +444,17 @@ export async function runEngine(businessId: string, message: string, opts: Engin
     if (!imageDataUrl) {
       await logEvent(businessId, "warn", "ai_reply", "Slika nije mogla biti preuzeta — nastavljam bez prepoznavanja slike");
     }
-    const describe = opts.describeImage ?? ((url: string) => describeImageWithTenantKey(businessId, url, provider, visionModel));
-    const desc = imageDataUrl ? await describe(imageDataUrl).catch(() => null) : null;
+    const desc = imageDataUrl
+      ? await (opts.describeImage
+          ? opts.describeImage(imageDataUrl).catch(() => null)
+          : describeImageWithTenantKey(businessId, imageDataUrl, provider, visionModel)
+              .then((r) => {
+                visionTokens = r.promptTokens + r.completionTokens;
+                visionCostEur = estimateCostEur(visionModel, r.promptTokens, r.completionTokens);
+                return r.text;
+              })
+              .catch(() => null))
+      : null;
     if (desc) {
       message = `${message ? message + " " : ""}[Slika prikazuje: ${desc}]`.trim();
     } else if (imageDataUrl) {
@@ -781,7 +801,7 @@ export async function runEngine(businessId: string, message: string, opts: Engin
       : provider === "anthropic"
         ? callAnthropic(key, model, systemFinal, chatMessages)
         : callOpenAi(key, model, systemFinal, chatMessages, imageForModel);
-  let ai: { text: string; tokens: number };
+  let ai: { text: string; tokens: number; promptTokens?: number; completionTokens?: number };
   try {
     ai = await callAi(resolved.key);
   } catch (firstErr) {
@@ -814,7 +834,7 @@ export async function runEngine(businessId: string, message: string, opts: Engin
     }
   }
 
-  const cost = (ai.tokens / 1000) * (MODEL_COST_PER_1K[model] ?? 0.001);
+  const cost = estimateCostEur(model, ai.promptTokens ?? 0, ai.completionTokens ?? Math.max(ai.tokens - (ai.promptTokens ?? 0), 0));
   // "Bot nije znao" loop: the AI answered with NO knowledge coverage (zero
   // relevant chunks, no sources, no FAQ) — record the question for the
   // dashboard so the owner can teach the bot. Fire-and-forget, never throws.
@@ -855,24 +875,24 @@ async function visionDescribe(
   imageUrl: string,
   provider: Provider,
   visionModel: string
-): Promise<{ text: string | null; error: string }> {
-  const openai = async () => {
+): Promise<{ text: string | null; error: string; promptTokens: number; completionTokens: number }> {
+  const openai = async (): Promise<VisionCallResult | null> => {
     const { key } = await resolveOpenAiKey(businessId);
     if (!key) return null;
     // Vision needs a vision-capable OpenAI model; guard against a text-only default.
     const model = /^gpt-4o|^gpt-4\.1|vision|^o[134]/i.test(visionModel) ? visionModel : APP_DEFAULT_VISION_MODEL;
     return openaiVision(key, model, imageUrl);
   };
-  const anthropic = async () => {
+  const anthropic = async (): Promise<VisionCallResult | null> => {
     const { key } = await resolveAnthropicKey(businessId);
     if (!key) return null;
     return anthropicVision(key, /claude/i.test(visionModel) ? visionModel : "claude-3-5-sonnet-latest", imageUrl);
   };
   try {
-    const text = provider === "anthropic" ? (await anthropic()) ?? (await openai()) : (await openai()) ?? (await anthropic());
-    return { text, error: "" };
+    const result = provider === "anthropic" ? (await anthropic()) ?? (await openai()) : (await openai()) ?? (await anthropic());
+    return { text: result?.text ?? null, error: "", promptTokens: result?.promptTokens ?? 0, completionTokens: result?.completionTokens ?? 0 };
   } catch (err) {
-    return { text: null, error: sanitizeAiError((err as Error).message) };
+    return { text: null, error: sanitizeAiError((err as Error).message), promptTokens: 0, completionTokens: 0 };
   }
 }
 
@@ -881,13 +901,13 @@ export async function describeImageWithTenantKey(
   imageUrl: string,
   provider: Provider,
   visionModel: string
-): Promise<string | null> {
+): Promise<{ text: string | null; promptTokens: number; completionTokens: number }> {
   const r = await visionDescribe(businessId, imageUrl, provider, visionModel);
   if (r.error) {
     // Model not vision-capable / bad image / provider error → clear per-business log, graceful null.
     await logEvent(businessId, "error", "ai_reply", `Slika nije mogla biti analizovana (${provider}/${visionModel}): ${r.error}`, { provider, visionModel });
   }
-  return r.text;
+  return { text: r.text, promptTokens: r.promptTokens, completionTokens: r.completionTokens };
 }
 
 export interface ImageDiagnosis {
@@ -953,7 +973,13 @@ export async function diagnoseImageRecognition(businessId: string, imageUrl: str
   return out;
 }
 
-async function openaiVision(key: string, model: string, imageUrl: string): Promise<string | null> {
+interface VisionCallResult {
+  text: string | null;
+  promptTokens: number;
+  completionTokens: number;
+}
+
+async function openaiVision(key: string, model: string, imageUrl: string): Promise<VisionCallResult> {
   // Reasoning models (o1/o3/o4, gpt-5) burn part of this budget on hidden
   // reasoning before writing the description — too low and they return
   // success with empty text. See isReasoningModel() for why.
@@ -972,10 +998,10 @@ async function openaiVision(key: string, model: string, imageUrl: string): Promi
       }
     ]
   });
-  return r.text || null;
+  return { text: r.text || null, promptTokens: r.promptTokens, completionTokens: r.completionTokens };
 }
 
-async function anthropicVision(key: string, model: string, imageUrl: string): Promise<string | null> {
+async function anthropicVision(key: string, model: string, imageUrl: string): Promise<VisionCallResult> {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
@@ -993,9 +1019,14 @@ async function anthropicVision(key: string, model: string, imageUrl: string): Pr
       ]
     })
   });
-  const data = (await res.json()) as { content?: Array<{ text?: string }>; error?: { message?: string } };
+  const data = (await res.json()) as {
+    content?: Array<{ text?: string }>;
+    usage?: { input_tokens?: number; output_tokens?: number };
+    error?: { message?: string };
+  };
   if (!res.ok || data.error) throw new Error(data.error?.message ?? `anthropic_vision_${res.status}`);
-  return (data.content ?? []).map((c) => c.text ?? "").join("").trim() || null;
+  const text = (data.content ?? []).map((c) => c.text ?? "").join("").trim() || null;
+  return { text, promptTokens: data.usage?.input_tokens ?? 0, completionTokens: data.usage?.output_tokens ?? 0 };
 }
 
 /**
@@ -1048,7 +1079,7 @@ export async function runEngineForInbound(
 
 type ChatTurn = { role: "user" | "assistant" | "system"; content: string };
 
-async function callOpenAi(key: string, model: string, system: string, messages: ChatTurn[], imageUrl?: string): Promise<{ text: string; tokens: number }> {
+async function callOpenAi(key: string, model: string, system: string, messages: ChatTurn[], imageUrl?: string): Promise<{ text: string; tokens: number; promptTokens: number; completionTokens: number }> {
   // Adaptive token-param handling (max_tokens vs max_completion_tokens) lives in ai-runtime.
   // When the customer attached a photo, the answering model SEES it directly
   // (like the old n8n flow) — no detail is lost in a text-only description.
@@ -1079,10 +1110,10 @@ async function callOpenAi(key: string, model: string, system: string, messages: 
     maxTokens: isReasoningModel("openai", model) ? 1500 : 220,
     temperature: 0.4
   });
-  return { text: r.text, tokens: r.tokens };
+  return { text: r.text, tokens: r.tokens, promptTokens: r.promptTokens, completionTokens: r.completionTokens };
 }
 
-async function callAnthropic(key: string, model: string, system: string, messages: ChatTurn[]): Promise<{ text: string; tokens: number }> {
+async function callAnthropic(key: string, model: string, system: string, messages: ChatTurn[]): Promise<{ text: string; tokens: number; promptTokens: number; completionTokens: number }> {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
@@ -1096,6 +1127,7 @@ async function callAnthropic(key: string, model: string, system: string, message
   const data = (await res.json()) as { content?: Array<{ text?: string }>; usage?: { input_tokens?: number; output_tokens?: number }; error?: { message?: string } };
   if (!res.ok || data.error) throw new Error(data.error?.message ?? `anthropic_${res.status}`);
   const text = (data.content ?? []).map((c) => c.text ?? "").join("").trim();
-  const tokens = (data.usage?.input_tokens ?? 0) + (data.usage?.output_tokens ?? 0);
-  return { text, tokens };
+  const promptTokens = data.usage?.input_tokens ?? 0;
+  const completionTokens = data.usage?.output_tokens ?? 0;
+  return { text, tokens: promptTokens + completionTokens, promptTokens, completionTokens };
 }

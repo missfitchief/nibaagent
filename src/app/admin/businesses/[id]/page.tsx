@@ -655,6 +655,13 @@ export default async function AdminBusinessDetail({
         )}
       </Card>
 
+      <Card className="border-rose-200">
+        <h2 className="font-semibold text-rose-700">Delete business</h2>
+        <div className="mt-3">
+          <DeleteBusinessForm businessId={biz.id} slug={biz.slug} />
+        </div>
+      </Card>
+
       <Card>
         <h2 className="font-semibold">Recent logs</h2>
         {logs.length === 0 ? (

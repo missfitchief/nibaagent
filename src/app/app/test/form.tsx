@@ -25,7 +25,7 @@ export function TestBotForm({ businessId }: { businessId: string }) {
           <div className="flex flex-wrap items-center gap-2">
             <Badge tone={r.intent === "handoff" ? "warn" : r.intent === "no_ai" ? "neutral" : "ok"}>intent: {r.intent}</Badge>
             <Badge tone="info">model: {r.modelUsed}</Badge>
-            {r.aiCalled && <Badge tone="info">{r.tokenEstimate} tokens · €{r.costEstimateEur}</Badge>}
+            {r.aiCalled && <Badge tone="info">AI reply</Badge>}
             {r.handoffTriggered && <Badge tone="warn">handoff would trigger</Badge>}
             {r.orderTriggered && <Badge tone="ok">order collection would start</Badge>}
           </div>

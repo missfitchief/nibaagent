@@ -9,6 +9,8 @@ import { createKnowledgeAction, deleteKnowledgeAction } from "../src/lib/actions
 import { resolveHandoffAction, setOrderStatusAction } from "../src/lib/actions/inbox";
 import { telegramTestAction, testBotAction, testImageRecognitionAction } from "../src/lib/actions/tools";
 import { adminUpdateBusinessAction } from "../src/lib/actions/admin";
+import { deleteBusinessAction } from "../src/lib/actions/danger";
+import { hashPassword } from "../src/lib/auth/password";
 
 /**
  * RBAC enforcement: mutating server actions must reject members below admin
@@ -208,5 +210,55 @@ describe("admin plan updates keep businesses.plan and subscriptions.plan in sync
     expect(sub?.plan).toBe("standard");
     const subs = await db.select().from(schema.subscriptions).where(eq(schema.subscriptions.businessId, A.business.id));
     expect(subs).toHaveLength(1); // upsert, never a duplicate row
+  });
+});
+
+describe("deleteBusinessAction: platform-admin-only, gated by the admin's own real password", () => {
+  it("rejects a business-role admin (owner/member) — platform admin only, no matter their business role", async () => {
+    const toDelete = await seedBusiness(db, "DeleteMeOwner");
+    await asOwner(); // asOwner is A's owner, not toDelete's — irrelevant here, any non-platform-admin session must be rejected
+    await expect(
+      deleteBusinessAction({}, fd({ businessId: toDelete.business.id, confirm: toDelete.business.slug, password: "whatever" }))
+    ).rejects.toThrow(/NEXT_REDIRECT/);
+    expect(await db.select().from(schema.businesses).where(eq(schema.businesses.id, toDelete.business.id))).toHaveLength(1);
+  });
+
+  it("rejects the platform admin's own action when the password is wrong — business survives", async () => {
+    const toDelete = await seedBusiness(db, "DeleteMeWrongPw");
+    const [platformAdmin] = await db
+      .insert(schema.users)
+      .values({ email: "delete-admin-1@test.local", name: "A", passwordHash: await hashPassword("correct-horse-battery"), role: "admin" })
+      .returning();
+    sessionState.token = await makeSession(platformAdmin.id, "admin", platformAdmin.email);
+
+    const res = await deleteBusinessAction({}, fd({ businessId: toDelete.business.id, confirm: toDelete.business.slug, password: "totally-wrong" }));
+    expect(res.error).toBeTruthy();
+    expect(await db.select().from(schema.businesses).where(eq(schema.businesses.id, toDelete.business.id))).toHaveLength(1);
+  });
+
+  it("rejects a correct password but wrong slug confirmation — business survives", async () => {
+    const toDelete = await seedBusiness(db, "DeleteMeWrongSlug");
+    const [platformAdmin] = await db
+      .insert(schema.users)
+      .values({ email: "delete-admin-2@test.local", name: "A", passwordHash: await hashPassword("correct-horse-battery"), role: "admin" })
+      .returning();
+    sessionState.token = await makeSession(platformAdmin.id, "admin", platformAdmin.email);
+
+    const res = await deleteBusinessAction({}, fd({ businessId: toDelete.business.id, confirm: "not-the-slug", password: "correct-horse-battery" }));
+    expect(res.error).toBeTruthy();
+    expect(await db.select().from(schema.businesses).where(eq(schema.businesses.id, toDelete.business.id))).toHaveLength(1);
+  });
+
+  it("deletes for real once the platform admin gives BOTH the correct password AND the correct slug", async () => {
+    const toDelete = await seedBusiness(db, "DeleteMeForReal");
+    const [platformAdmin] = await db
+      .insert(schema.users)
+      .values({ email: "delete-admin-3@test.local", name: "A", passwordHash: await hashPassword("correct-horse-battery"), role: "admin" })
+      .returning();
+    sessionState.token = await makeSession(platformAdmin.id, "admin", platformAdmin.email);
+
+    const res = await deleteBusinessAction({}, fd({ businessId: toDelete.business.id, confirm: toDelete.business.slug, password: "correct-horse-battery" }));
+    expect(res.ok).toBe(true);
+    expect(await db.select().from(schema.businesses).where(eq(schema.businesses.id, toDelete.business.id))).toHaveLength(0);
   });
 });

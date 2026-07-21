@@ -27,7 +27,7 @@ export default async function AnalyticsPage() {
     .orderBy(sql`1`);
 
   const [aiTotal] = await d
-    .select({ n: sql<number>`count(*)::int`, cost: sql<string>`coalesce(sum(${messages.costEstimate}), 0)` })
+    .select({ n: sql<number>`count(*)::int` })
     .from(messages)
     .where(and(eq(messages.businessId, business.id), eq(messages.aiGenerated, true)));
   const [orderCount] = await d.select({ n: sql<number>`count(*)::int` }).from(orders).where(eq(orders.businessId, business.id));
@@ -76,8 +76,7 @@ export default async function AnalyticsPage() {
       </Card>
 
       <p className="text-xs text-[var(--ink-soft)]">
-        Estimated AI cost so far: €{Number(aiTotal?.cost ?? 0).toFixed(2)}. Savings estimate assumes a €700/month support
-        salary and ~2 minutes saved per AI-handled reply.
+        Savings estimate assumes a €700/month support salary and ~2 minutes saved per AI-handled reply.
       </p>
     </main>
   );
