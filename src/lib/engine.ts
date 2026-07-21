@@ -112,6 +112,20 @@ const norm = (s: string) =>
 
 const ORDER_PATTERNS = [/naruc/i, /poruc/i, /kupuj/i, /uzimam/i, /zelim (da )?(narucim|porucim|kupim)/i, /how (do|can) i (order|buy)/i, /i want to (order|buy)/i];
 
+/**
+ * Greetings/farewells/fillers that are NOT city names — a bare capitalized
+ * word with no digits (e.g. a customer just saying "Živeli"/"Pozdrav" to sign
+ * off) must never be mistaken for a city by looseOrderFields() below. This bit
+ * a real conversation: the bare-city heuristic read "Živeli" as the city,
+ * which flipped the message into "order-relevant" and made the bot fire the
+ * canned missing-fields reply over a farewell instead of just closing warmly.
+ */
+const NON_CITY_WORDS = new Set([
+  "zivio", "zivjeli", "ziveli", "zivela", "zdravo", "pozdrav", "cao", "bok", "hej", "hvala",
+  "dovidjenja", "vidimo se", "laku noc", "vazi", "super", "odlicno", "ok", "okej", "dobro",
+  "molim", "izvini", "izvinite", "u redu", "naravno", "svakako", "razumem", "razumijem"
+]);
+
 export function detectOrderIntent(message: string): boolean {
   const n = norm(message);
   return ORDER_PATTERNS.some((p) => p.test(n));
@@ -156,7 +170,9 @@ function looseOrderFields(message: string, known: OrderData): Partial<OrderData>
   // (otherwise it reads as a name).
   if (!known.city && (digits.length === 0 || digits.length === 5)) {
     const m = t.match(/^([A-ZČĆŽŠĐ][a-zčćžšđ]{2,}(?:\s+[A-ZČĆŽŠĐ][a-zčćžšđ]{2,})?)\s*(?:\d{5})?$/u);
-    if (m && (m[1].split(/\s+/).length === 1 || known.customerName)) out.city = m[1].trim();
+    if (m && (m[1].split(/\s+/).length === 1 || known.customerName) && !NON_CITY_WORDS.has(norm(m[1]))) {
+      out.city = m[1].trim();
+    }
   }
   return out;
 }

@@ -132,6 +132,25 @@ describe("conversation memory", () => {
     expect(orderRows[0].phone).toBe("061 999 888");
   });
 
+  it("order flow: a farewell word mid-collection is not mistaken for the city", async () => {
+    // Regression for a real prod bug: a customer said "Živeli" (a casual
+    // sign-off) while an order was still missing fields. The bare-value
+    // extractor matched it against the "single capitalized word = city"
+    // heuristic, which flipped the message into "order-relevant" and made
+    // the bot fire the canned "još mi treba ulica, ime i broj" reply over a
+    // farewell instead of just letting the conversation close naturally.
+    const sender = { channel: "facebook" as const, senderId: "fb-user-farewell" };
+    await runEngine(biz1, "Zelim da naručim", { conversation: sender });
+    const r2 = await runEngine(biz1, "Marko Marković", { conversation: sender });
+    const convoId = r2.conversationId!;
+
+    const r3 = await runEngine(biz1, "Živeli", { conversation: sender });
+    expect(r3.intent).not.toBe("order");
+
+    const [convo] = await db.select().from(schema.conversations).where(eq(schema.conversations.id, convoId));
+    expect(parseConversationState(convo.conversationState).order?.city).toBeFalsy();
+  });
+
   it("AI reply: the model receives recent history — follow-up questions stay coherent", async () => {
     await db.insert(schema.knowledgeSources).values({
       businessId: biz1,
