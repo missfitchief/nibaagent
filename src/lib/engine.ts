@@ -145,7 +145,23 @@ function hasAnyOrderField(o: Partial<OrderData>): boolean {
 function looseOrderFields(message: string, known: OrderData): Partial<OrderData> {
   const t = message.trim();
   const out: Partial<OrderData> = {};
-  if (!t || t.length > 60) return out;
+  if (!t) return out;
+
+  // Bare postal + town, found ANYWHERE in the message regardless of its
+  // length (unlike the other bare-value checks below, which only look at a
+  // short message in its entirety) — BiH postal codes are very commonly
+  // typed with a space ("88 000 Mostar"), and requiring a town name right
+  // after is specific enough to never be confused with a phone-number
+  // fragment (a phone is never immediately followed by a capitalized word).
+  if (!known.postalCode) {
+    const pm = t.match(/(?:^|\s)(\d{2}\s?\d{3})\s+([A-ZČĆŽŠĐ][a-zčćžšđ]{2,})(?=\s|$)/u);
+    if (pm) {
+      out.postalCode = pm[1].replace(/\s+/g, "");
+      if (!known.city && !NON_CITY_WORDS.has(norm(pm[2]))) out.city = pm[2];
+    }
+  }
+
+  if (t.length > 60) return out;
   const digits = t.replace(/\D/g, "");
   const hasLetters = /[A-Za-zčćžšđČĆŽŠĐ]/u.test(t);
 
@@ -760,10 +776,24 @@ export async function runEngine(businessId: string, message: string, opts: Engin
   // Free-thinking order steering: when an order is mid-flight, the AI answers
   // the current message from context FIRST, then naturally guides back to the
   // missing fields — no rigid templates, no repeated questions.
-  const orderSteerNote =
-    knownOrder.active && !knownOrder.completed
-      ? `ORDER IN PROGRESS — still missing: ${missingOrderFields(knownOrder).map((f) => orderFieldLabel(f, lang)).join(", ") || "nothing"}. Answer the customer's message FIRST (using the conversation above), then naturally guide them to send the missing details — only what is still missing, never the whole form again.`
-      : "";
+  //
+  // Two failure modes this guards against, both seen in real conversations:
+  // 1. The model would sometimes ask for only ONE of several still-missing
+  //    fields (picking whichever felt most natural), which reads as fine in
+  //    isolation — but the NEXT reply (rules-based or AI) then lists the
+  //    other missing fields the model never mentioned, and the customer sees
+  //    the bot "suddenly" demanding more after being told it just needed one
+  //    thing. Every nudge must now name the FULL still-missing list.
+  // 2. The model would sometimes tell the customer their order is noted/
+  //    complete/"will be shipped soon" while fields were still missing —
+  //    pure hallucinated reassurance. It must never claim completion while
+  //    the missing list below is non-empty.
+  const stillMissing = missingOrderFields(knownOrder);
+  const orderSteerNote = !knownOrder.active || knownOrder.completed
+    ? ""
+    : stillMissing.length
+      ? `ORDER IN PROGRESS — still missing: ${stillMissing.map((f) => orderFieldLabel(f, lang)).join(", ")}. Answer the customer's message FIRST (using the conversation above), then ask for ALL of the fields listed above together, in one short sentence — do not name only one of them and do not say the order is complete/confirmed/being shipped, since it is not yet.`
+      : `ORDER IN PROGRESS — every required field is already known; nothing is missing. Answer the customer's message FIRST, and you may now confirm the order is complete.`;
   const prevProductsNote = !productData && convoState.productContext?.length
     ? `Previously discussed products in this conversation: ${convoState.productContext.join(", ")}`
     : "";

@@ -171,6 +171,41 @@ describe("conversation memory", () => {
     expect(order?.city).toBe("bugojno");
   });
 
+  it("order flow: a space-separated postal code with the town is captured, and a phone number never false-matches as one", async () => {
+    // Regression for a real prod bug: BiH postal codes are commonly typed
+    // with a space ("88 000 Mostar"). The strict postal regex only matched 5
+    // CONSECUTIVE digits, so the space broke it — postal code (and the town
+    // riding along with it) were silently dropped from a long combined
+    // address message the customer had already sent.
+    const sender = { channel: "facebook" as const, senderId: "fb-user-postal" };
+    await runEngine(biz1, "Zelim da naručim", { conversation: sender });
+    const r2 = await runEngine(biz1, "Dario Ljevak", { conversation: sender });
+    const convoId = r2.conversationId!;
+
+    await runEngine(
+      biz1,
+      "Šanticeva ili Mile Budaka 118 ...ista je ul samo jos nije vracena. 88 000 Mostar",
+      { conversation: sender }
+    );
+
+    const [convo] = await db.select().from(schema.conversations).where(eq(schema.conversations.id, convoId));
+    const order = parseConversationState(convo.conversationState).order;
+    expect(order?.postalCode).toBe("88000");
+    expect(order?.city).toBe("Mostar");
+
+    // A phone number immediately followed by a farewell must NEVER be misread
+    // as a "postal code + town" — e.g. "063 533 396 Hvala" must not produce a
+    // bogus postal code out of digits that happen to sit inside the phone run.
+    const sender2 = { channel: "facebook" as const, senderId: "fb-user-postal-2" };
+    await runEngine(biz1, "Zelim da naručim", { conversation: sender2 });
+    const rb = await runEngine(biz1, "063 533 396 Hvala", { conversation: sender2 });
+    const convoId2 = rb.conversationId!;
+    const [convo2] = await db.select().from(schema.conversations).where(eq(schema.conversations.id, convoId2));
+    const order2 = parseConversationState(convo2.conversationState).order;
+    expect(order2?.postalCode).toBeFalsy();
+    expect(order2?.phone).toBe("063 533 396");
+  });
+
   it("AI reply: the model receives recent history — follow-up questions stay coherent", async () => {
     await db.insert(schema.knowledgeSources).values({
       businessId: biz1,
