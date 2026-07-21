@@ -134,6 +134,12 @@ export async function checkPageSubscription(pageId: string, pageToken: string): 
   }
 }
 
+interface ObjectWebhookStatus {
+  configured: boolean;
+  callbackUrl: string;
+  active: boolean;
+}
+
 /**
  * GET the APP-level webhook config Meta actually has on file: the callback
  * URL it will POST to and whether the "messages" field is active there. This
@@ -142,23 +148,34 @@ export async function checkPageSubscription(pageId: string, pageToken: string): 
  * app-wide, in the Meta App Dashboard — not per page) is stale, unverified,
  * or pointed at an old deployment, in which case NOTHING is ever delivered
  * to anyone, for any page, and the per-page check alone would miss it.
+ *
+ * Facebook Messenger and Instagram DMs are TWO SEPARATE subscription objects
+ * ("page" vs "instagram") — a page's "page" object can be fully active while
+ * its "instagram" object is unconfigured or inactive, and Instagram messages
+ * will silently never arrive even though every other check looks fine. Both
+ * are reported separately; checking only one (or picking "whichever comes
+ * first") hides exactly this failure mode.
  */
-export async function checkAppWebhookConfig(): Promise<{ configured: boolean; callbackUrl: string; active: boolean; error?: string }> {
+export async function checkAppWebhookConfig(): Promise<{ page: ObjectWebhookStatus; instagram: ObjectWebhookStatus; error?: string }> {
+  const empty: ObjectWebhookStatus = { configured: false, callbackUrl: "", active: false };
   const { appId, appSecret } = await metaCreds();
-  if (!appId || !appSecret) return { configured: false, callbackUrl: "", active: false, error: "META_APP_ID/META_APP_SECRET not set" };
+  if (!appId || !appSecret) return { page: empty, instagram: empty, error: "META_APP_ID/META_APP_SECRET not set" };
   try {
     const res = await fetch(`${G}/${appId}/subscriptions?access_token=${encodeURIComponent(`${appId}|${appSecret}`)}`);
     const body = (await res.json()) as {
       data?: Array<{ object?: string; callback_url?: string; active?: boolean; fields?: Array<{ name?: string } | string> }>;
       error?: { message?: string };
     };
-    if (!res.ok || body.error) return { configured: false, callbackUrl: "", active: false, error: body.error?.message ?? `graph_${res.status}` };
-    const pageSub = (body.data ?? []).find((s) => s.object === "page" || s.object === "instagram");
-    if (!pageSub) return { configured: false, callbackUrl: "", active: false, error: "No page/instagram webhook subscription configured for this app at all." };
-    const fieldNames = (pageSub.fields ?? []).map((f) => (typeof f === "string" ? f : f.name ?? ""));
-    return { configured: true, callbackUrl: pageSub.callback_url ?? "", active: Boolean(pageSub.active) && fieldNames.includes("messages") };
+    if (!res.ok || body.error) return { page: empty, instagram: empty, error: body.error?.message ?? `graph_${res.status}` };
+    const toStatus = (obj: string): ObjectWebhookStatus => {
+      const sub = (body.data ?? []).find((s) => s.object === obj);
+      if (!sub) return empty;
+      const fieldNames = (sub.fields ?? []).map((f) => (typeof f === "string" ? f : f.name ?? ""));
+      return { configured: true, callbackUrl: sub.callback_url ?? "", active: Boolean(sub.active) && fieldNames.includes("messages") };
+    };
+    return { page: toStatus("page"), instagram: toStatus("instagram") };
   } catch (err) {
-    return { configured: false, callbackUrl: "", active: false, error: (err as Error).message };
+    return { page: empty, instagram: empty, error: (err as Error).message };
   }
 }
 

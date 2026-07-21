@@ -115,9 +115,11 @@ export async function GET(request: NextRequest) {
     webhookSubscribed: sub.subscribed,
     webhookSubscribedFields: sub.fields,
     webhookSubscribeError: sub.error ?? null,
-    appWebhookConfigured: appHook.configured,
-    appWebhookActive: appHook.active,
-    appWebhookCallbackUrl: appHook.callbackUrl,
+    appWebhookPageActive: appHook.page.active,
+    appWebhookPageCallbackUrl: appHook.page.callbackUrl,
+    appWebhookInstagramActive: appHook.instagram.active,
+    appWebhookInstagramConfigured: appHook.instagram.configured,
+    appWebhookInstagramCallbackUrl: appHook.instagram.callbackUrl,
     appWebhookError: appHook.error ?? null
   });
 }

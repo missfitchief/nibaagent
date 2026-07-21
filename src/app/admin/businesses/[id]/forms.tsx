@@ -203,9 +203,11 @@ interface TestConnResult {
   webhookSubscribed?: boolean;
   webhookSubscribedFields?: string[];
   webhookSubscribeError?: string | null;
-  appWebhookConfigured?: boolean;
-  appWebhookActive?: boolean;
-  appWebhookCallbackUrl?: string;
+  appWebhookPageActive?: boolean;
+  appWebhookPageCallbackUrl?: string;
+  appWebhookInstagramActive?: boolean;
+  appWebhookInstagramConfigured?: boolean;
+  appWebhookInstagramCallbackUrl?: string;
   appWebhookError?: string | null;
   error?: string;
 }
@@ -243,9 +245,14 @@ export function TestConnectionButton({ businessId }: { businessId: string }) {
                 tone={r.webhookSubscribed ? "ok" : "error"}
               />
               <Row
-                k="Webhook callback (Meta App podešavanje)"
-                v={r.appWebhookActive ? `Aktivan → ${r.appWebhookCallbackUrl}` : r.appWebhookError ? `Error: ${r.appWebhookError}` : r.appWebhookConfigured ? `Podešen ali NEAKTIVAN → ${r.appWebhookCallbackUrl}` : "Nije podešen na nivou aplikacije"}
-                tone={r.appWebhookActive ? "ok" : "error"}
+                k="App webhook — Messenger (page)"
+                v={r.appWebhookPageActive ? `Aktivan → ${r.appWebhookPageCallbackUrl}` : r.appWebhookError ? `Error: ${r.appWebhookError}` : "Nije aktivan"}
+                tone={r.appWebhookPageActive ? "ok" : "error"}
+              />
+              <Row
+                k="App webhook — Instagram DM"
+                v={r.appWebhookInstagramActive ? `Aktivan → ${r.appWebhookInstagramCallbackUrl}` : r.appWebhookInstagramConfigured ? `Podešen ali NEAKTIVAN → ${r.appWebhookInstagramCallbackUrl}` : "NIJE podešen — Instagram poruke se NEĆE primati"}
+                tone={r.appWebhookInstagramActive ? "ok" : "error"}
               />
               <Row k="client_id" v={r.client_id ?? "—"} />
               <Row k="page_id" v={r.page_id ?? "—"} />
