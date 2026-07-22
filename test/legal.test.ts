@@ -26,9 +26,10 @@ describe("legal documents", () => {
     expect(flat(DATA_DELETION)).toContain("support@nibachat.app");
   });
 
-  it("names the legal entity and keeps the jurisdiction placeholder for the operator to fill", () => {
+  it("names the legal entity and jurisdiction", () => {
     const flat = JSON.stringify(Object.values(LEGAL_DOCS).map((d) => d.body));
     expect(flat).toContain("Legal entity: Aladdin21");
-    expect(flat).toContain("[INSERT JURISDICTION]");
+    expect(flat).toContain("Jurisdiction: United States");
+    expect(flat).toContain("governed by the laws of the United States");
   });
 });

@@ -20,7 +20,7 @@ const CONTACT: Block[] = [
   { p: "NibaChat Agent" },
   { p: "Email: support@nibachat.app" },
   { p: "Legal entity: Aladdin21" },
-  { p: "Jurisdiction: [INSERT JURISDICTION]" }
+  { p: "Jurisdiction: United States" }
 ];
 
 export const PRIVACY: LegalDoc = {
@@ -173,7 +173,7 @@ export const TERMS: LegalDoc = {
     { p: "We may update the service or these Terms from time to time. Updated Terms will be posted on this page with a new “Last updated” date." },
 
     { h: "15. Governing Law" },
-    { p: "These Terms are governed by the laws of [INSERT JURISDICTION], unless mandatory local law requires otherwise." },
+    { p: "These Terms are governed by the laws of the United States, unless mandatory local law requires otherwise." },
 
     { h: "16. Contact" },
     ...CONTACT
