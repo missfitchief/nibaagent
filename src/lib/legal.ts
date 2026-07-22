@@ -19,7 +19,7 @@ const UPDATED = "2026-07-09";
 const CONTACT: Block[] = [
   { p: "NibaChat Agent" },
   { p: "Email: support@nibachat.app" },
-  { p: "Legal entity: [INSERT LEGAL COMPANY NAME]" },
+  { p: "Legal entity: Aladdin21" },
   { p: "Jurisdiction: [INSERT JURISDICTION]" }
 ];
 
