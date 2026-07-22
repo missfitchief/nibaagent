@@ -99,6 +99,11 @@ export default async function ConversationDetail({
                     <span>{m.createdAt.toISOString().replace("T", " ").slice(0, 19)}</span>
                     {m.intent && <Badge tone="neutral">{m.intent}</Badge>}
                     {m.aiGenerated && m.modelUsed && <Badge tone="info">{m.modelUsed}</Badge>}
+                    {m.aiGenerated && (
+                      <Badge tone="neutral">
+                        {m.tokenUsageEstimate.toLocaleString()} tok · ${Number(m.costEstimate).toFixed(4)}
+                      </Badge>
+                    )}
                   </div>
                 </div>
               </div>
