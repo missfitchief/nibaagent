@@ -2,7 +2,7 @@ import "server-only";
 import { and, eq } from "drizzle-orm";
 import { db } from "./db/client";
 import { botSettings, businesses, conversations, handoffs, knowledgeSources, metaConnections, orders } from "./db/schema";
-import { estimateCostEur } from "./plans";
+import { estimateCostUsd } from "./plans";
 import { resolveOpenAiKey, resolveAnthropicKey } from "./secrets";
 import { matchProducts, productFacts, variantFacts, variantsFor } from "./products";
 import { pickModel, sanitizeModel, APP_DEFAULT_MODEL, APP_DEFAULT_VISION_MODEL, type Provider } from "./models";
@@ -91,7 +91,7 @@ export interface EngineResult {
   modelUsed: string;
   provider: Provider;
   tokenEstimate: number;
-  costEstimateEur: number;
+  costEstimateUsd: number;
   aiCalled: boolean;
   /** Business launch mode — drives whether the caller actually sends. */
   launchMode: "draft" | "live" | "paused";
@@ -360,7 +360,7 @@ export async function runEngine(businessId: string, message: string, opts: Engin
     modelUsed: "rules",
     provider,
     tokenEstimate: 0,
-    costEstimateEur: 0,
+    costEstimateUsd: 0,
     aiCalled: false,
     launchMode,
     shouldSend: false,
@@ -407,14 +407,14 @@ export async function runEngine(businessId: string, message: string, opts: Engin
   // final reply comes from rules/knowledge, not the answering AI call — track
   // them separately and fold them into whatever reply actually goes out below.
   let visionTokens = 0;
-  let visionCostEur = 0;
+  let visionCostUsd = 0;
 
   /** Persist the bot reply + roll the conversation state forward. */
   const persistReply = async (r: EngineResult, patch?: Partial<ConversationState>): Promise<EngineResult> => {
     const withVisionCost: EngineResult = {
       ...r,
       tokenEstimate: r.tokenEstimate + visionTokens,
-      costEstimateEur: Math.round((r.costEstimateEur + visionCostEur) * 1_000_000) / 1_000_000
+      costEstimateUsd: Math.round((r.costEstimateUsd + visionCostUsd) * 1_000_000) / 1_000_000
     };
     if (!convo) return withVisionCost;
     if (withVisionCost.reply.trim()) {
@@ -428,7 +428,7 @@ export async function runEngine(businessId: string, message: string, opts: Engin
         aiGenerated: withVisionCost.aiCalled,
         modelUsed: withVisionCost.aiCalled ? withVisionCost.modelUsed : "",
         tokenEstimate: withVisionCost.tokenEstimate,
-        costEstimate: withVisionCost.costEstimateEur
+        costEstimate: withVisionCost.costEstimateUsd
       });
     }
     await updateConversationState(businessId, convo.id, { lastIntent: withVisionCost.intent, ...patch });
@@ -485,7 +485,7 @@ export async function runEngine(businessId: string, message: string, opts: Engin
           : describeImageWithTenantKey(businessId, imageDataUrl, provider, visionModel)
               .then((r) => {
                 visionTokens = r.promptTokens + r.completionTokens;
-                visionCostEur = estimateCostEur(visionModel, r.promptTokens, r.completionTokens);
+                visionCostUsd = estimateCostUsd(visionModel, r.promptTokens, r.completionTokens);
                 return r.text;
               })
               .catch(() => null))
@@ -883,7 +883,7 @@ export async function runEngine(businessId: string, message: string, opts: Engin
     }
   }
 
-  const cost = estimateCostEur(model, ai.promptTokens ?? 0, ai.completionTokens ?? Math.max(ai.tokens - (ai.promptTokens ?? 0), 0));
+  const cost = estimateCostUsd(model, ai.promptTokens ?? 0, ai.completionTokens ?? Math.max(ai.tokens - (ai.promptTokens ?? 0), 0));
   // "Bot nije znao" loop: the AI answered with NO knowledge coverage (zero
   // relevant chunks, no sources, no FAQ) — record the question for the
   // dashboard so the owner can teach the bot. Fire-and-forget, never throws.
@@ -901,7 +901,7 @@ export async function runEngine(businessId: string, message: string, opts: Engin
       ],
       modelUsed: model,
       tokenEstimate: ai.tokens,
-      costEstimateEur: Math.round(cost * 10000) / 10000,
+      costEstimateUsd: Math.round(cost * 10000) / 10000,
       aiCalled: true
     }),
     // Remember what we talked about: matched products (or keep the previous context).

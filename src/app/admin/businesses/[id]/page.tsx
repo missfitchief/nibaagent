@@ -96,6 +96,16 @@ export default async function AdminBusinessDetail({
     })
     .from(messages)
     .where(eq(messages.businessId, id));
+  // AI cost broken out by window (USD — the currency providers actually bill
+  // in, no FX estimate layered on top). One query, three FILTER aggregates.
+  const [aiCostWindows] = await d
+    .select({
+      daily: sql<string>`coalesce(sum(${messages.costEstimate}) filter (where ${messages.createdAt} >= now() - interval '1 day'), 0)`,
+      weekly: sql<string>`coalesce(sum(${messages.costEstimate}) filter (where ${messages.createdAt} >= now() - interval '7 days'), 0)`,
+      monthly: sql<string>`coalesce(sum(${messages.costEstimate}) filter (where ${messages.createdAt} >= now() - interval '30 days'), 0)`
+    })
+    .from(messages)
+    .where(eq(messages.businessId, id));
   const [orderCount] = await d.select({ n: sql<number>`count(*)::int` }).from(orders).where(eq(orders.businessId, id));
   const [handoffOpen] = await d
     .select({ n: sql<number>`count(*)::int` })
@@ -589,8 +599,14 @@ export default async function AdminBusinessDetail({
         <Stat label="AI replies" value={msg?.ai ?? 0} />
         <Stat label="Orders" value={orderCount?.n ?? 0} />
         <Stat label="Open handoffs" value={handoffOpen?.n ?? 0} tone={handoffOpen?.n ? "warn" : "default"} hint={`${handoffRate}% of msgs`} />
-        <Stat label="Est. AI cost" value={`€${Number(msg?.cost ?? 0).toFixed(2)}`} hint={`${(msg?.tokens ?? 0).toLocaleString()} tokens`} />
+        <Stat label="AI cost (all-time)" value={`$${Number(msg?.cost ?? 0).toFixed(2)}`} hint={`${(msg?.tokens ?? 0).toLocaleString()} tokens`} />
         <Stat label="Est. saved" value={`€${savings.savedEur}`} tone="ok" />
+      </section>
+
+      <section className="grid grid-cols-3 gap-3">
+        <Stat label="AI cost — today" value={`$${Number(aiCostWindows?.daily ?? 0).toFixed(2)}`} />
+        <Stat label="AI cost — 7 days" value={`$${Number(aiCostWindows?.weekly ?? 0).toFixed(2)}`} />
+        <Stat label="AI cost — 30 days" value={`$${Number(aiCostWindows?.monthly ?? 0).toFixed(2)}`} />
       </section>
 
       <section className="grid gap-4 lg:grid-cols-2">

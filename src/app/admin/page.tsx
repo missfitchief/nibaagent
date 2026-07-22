@@ -38,7 +38,7 @@ export default async function AdminOverview() {
         <Stat label="AI replies" value={aiCount?.n ?? 0} />
         <Stat label="Orders" value={orderCount?.n ?? 0} />
         <Stat label="Handoffs" value={handoffCount?.n ?? 0} />
-        <Stat label="Est. AI cost" value={`€${Number(costRow?.c ?? 0).toFixed(2)}`} />
+        <Stat label="Est. AI cost" value={`$${Number(costRow?.c ?? 0).toFixed(2)}`} />
       </section>
 
       <Card>

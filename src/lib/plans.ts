@@ -166,24 +166,29 @@ const MODEL_RATES_USD_PER_1M: Record<string, ModelRate> = {
 /** Unknown/typed-in custom model → a mid-range guess so cost never silently reads near-zero. */
 const FALLBACK_RATE: ModelRate = { in: 1, out: 3 };
 
-/** Rough, roughly-live USD→EUR conversion. Not a real FX feed — good enough for an "estimate" label. */
-const EUR_PER_USD = 0.92;
-
 function rateFor(model: string): ModelRate {
   return MODEL_RATES_USD_PER_1M[model] ?? FALLBACK_RATE;
 }
 
-/** Precise cost from actual prompt/completion token counts (preferred — call sites that have the split from the provider's `usage` object should always use this). */
-export function estimateCostEur(model: string, promptTokens: number, completionTokens: number): number {
+/**
+ * Cost in USD — the currency every provider (OpenAI, Anthropic) actually
+ * bills in. Deliberately NOT converted to EUR: an FX layer only adds
+ * approximation on top of an already-estimated number, and admins comparing
+ * this against their real OpenAI/Anthropic invoice want it to match exactly.
+ * Precise version from actual prompt/completion token counts (preferred —
+ * call sites that have the split from the provider's `usage` object should
+ * always use this).
+ */
+export function estimateCostUsd(model: string, promptTokens: number, completionTokens: number): number {
   const rate = rateFor(model);
   const usd = (promptTokens / 1_000_000) * rate.in + (completionTokens / 1_000_000) * rate.out;
-  return Math.round(usd * EUR_PER_USD * 1_000_000) / 1_000_000;
+  return Math.round(usd * 1_000_000) / 1_000_000;
 }
 
 /** Fallback for call sites that only have a total token count (no in/out split) — averages the model's own in/out rate instead of a flat guess. */
-export function estimateCostEurBlended(model: string, totalTokens: number): number {
+export function estimateCostUsdBlended(model: string, totalTokens: number): number {
   const rate = rateFor(model);
   const blendedPer1M = (rate.in + rate.out) / 2;
   const usd = (totalTokens / 1_000_000) * blendedPer1M;
-  return Math.round(usd * EUR_PER_USD * 1_000_000) / 1_000_000;
+  return Math.round(usd * 1_000_000) / 1_000_000;
 }
