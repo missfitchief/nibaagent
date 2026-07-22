@@ -361,6 +361,35 @@ describe("conversation memory", () => {
     expect(r3.reply).not.toContain("ime i prezime");
   });
 
+  it("the AI is told not to falsely agree it already has data the customer claims to have sent", async () => {
+    // Regression for a real prod bug: a customer insisted "imate gore moje
+    // podatke" (you already have my info above) when the bot in fact had NO
+    // order data on file at all — the model just kept agreeing ("da, imamo
+    // vaše podatke... proslijediću timu") to be polite, three turns in a row,
+    // without ever citing anything concrete. No order was ever actually
+    // collected. The system prompt must tell the model to push back honestly
+    // instead of caving to social pressure.
+    const sender = { channel: "facebook" as const, senderId: "fb-truth-check" };
+    const calls: SeamCall[] = [];
+    const seam = async (input: { system: string; messages: SeamCall["messages"] }) => {
+      calls.push({ system: input.system, messages: input.messages });
+      return { text: "Nemam Vaše podatke zabeležene — možete li mi ih ponovo poslati?", tokens: 15 };
+    };
+    await db.insert(schema.knowledgeSources).values({
+      businessId: biz1,
+      type: "faq",
+      title: "Dostava",
+      content: "Dostava traje 2-3 radna dana.",
+      status: "active"
+    });
+    await runEngine(biz1, "Moze?", { conversation: sender, chatCompletion: seam });
+    const r = await runEngine(biz1, "Imate gore moje podatke", { conversation: sender, chatCompletion: seam });
+    expect(r.intent).toBe("ai");
+    const lastCall = calls[calls.length - 1];
+    expect(lastCall.system).toContain("NEVER agree that you already have information you don't");
+    expect(lastCall.system).not.toContain("already provided — do NOT ask again"); // the knownOrderNote block itself is absent — nothing is actually known here
+  });
+
   it("loose extraction: bare values mid-order (no labels) fill name/city+postal/street", async () => {
     const sender = { channel: "facebook" as const, senderId: "fb-loose" };
 

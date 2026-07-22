@@ -768,7 +768,7 @@ export async function runEngine(businessId: string, message: string, opts: Engin
     knownOrder.productText ? `ordering: ${knownOrder.productText}` : ""
   ].filter(Boolean);
   const ongoingNote = history.length
-    ? "This is ONE ongoing conversation with the same customer — recent messages follow. Answer in the context of the whole conversation (short follow-ups like 'a kad stiže?' refer to the previous topic). NEVER re-ask for details the customer already gave."
+    ? "This is ONE ongoing conversation with the same customer — recent messages follow. Answer in the context of the whole conversation (short follow-ups like 'a kad stiže?' refer to the previous topic). NEVER re-ask for details the customer already gave. But equally, NEVER agree that you already have information you don't — if the customer claims they already sent their name/address/phone/etc. and it is NOT listed in KNOWN CUSTOMER/ORDER DATA below (or that section is missing entirely), do not just say 'yes we have it' to be agreeable. Say honestly that you don't see it in the conversation and ask them to resend it."
     : "";
   const knownOrderNote = knownOrderBits.length
     ? `KNOWN CUSTOMER/ORDER DATA (already provided — do NOT ask again): ${knownOrderBits.join("; ")}`
