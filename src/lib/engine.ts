@@ -817,7 +817,7 @@ export async function runEngine(businessId: string, message: string, opts: Engin
     orderSteerNote,
     prevProductsNote,
     adNote,
-    "NEVER invent prices, stock, delivery terms or product facts. If the answer is not in the data below, say the team will check and reply soon.",
+    "NEVER invent prices, stock, delivery terms or product facts. A price belongs to ONE specific product — if the customer is now asking about a different item than whichever one a price was quoted for earlier in this conversation, do NOT reuse that earlier number. Only state a price that is for the CURRENT item and is explicitly listed in PRODUCTS below. If the current item isn't clearly one of the products below, say the team will check and reply soon instead of guessing.",
     settings?.customInstructions ? `Business rules: ${settings.customInstructions.slice(0, 800)}` : "",
     summary,
     productData ? `PRODUCTS (authoritative — prices/stock/colors come from here, never invent):\n${productData}` : "",
@@ -909,8 +909,12 @@ export async function runEngine(businessId: string, message: string, opts: Engin
   );
 }
 
+// Real prod bug: a vague description ("srebrni privezak sa fotografijom")
+// never token-matches a catalog title like "Medaljon sa slikom" — the exact
+// jewelry-type word matters for matchProducts()'s stem matching, so the
+// model is told to pick one explicitly rather than paraphrase.
 const VISION_PROMPT =
-  "Opiši ovu sliku proizvoda u 1-2 rečenice: vrsta artikla, boja, materijal i uočljivi detalji. Bez izmišljanja cene ili dostupnosti.";
+  "Opiši ovu sliku proizvoda u 1-2 rečenice. Prva reč MORA biti tačan tip nakita sa liste: medaljon, ogrlica, narukvica, minđuše, prsten, privezak — izaberi onaj koji najbolje odgovara, čak i ako je artikal ukrašen ili personalizovan (npr. medaljon sa slikom je i dalje 'medaljon', ne 'ogrlica'). Zatim boja, materijal i uočljivi detalji. Bez izmišljanja cene ili dostupnosti.";
 
 /**
  * Describe an image using the TENANT's own key. Prefers the configured provider;

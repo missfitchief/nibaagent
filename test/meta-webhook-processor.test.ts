@@ -470,6 +470,35 @@ describe("meta webhook processor", () => {
       }
     });
 
+    it("vision prompt asks for an exact catalog jewelry-type word first", async () => {
+      // Regression for a real prod bug: a vague vision description ("srebrni
+      // privezak sa fotografijom") never token-matched the catalog title
+      // "Medaljon sa slikom" — matchProducts() missed it, and the AI ended up
+      // quoting a DIFFERENT product's price from earlier in the conversation
+      // ("Cena medaljona je 35.90 BAM" when the real price was 38.90).
+      const bodies: Array<{ messages: Array<{ content: unknown }> }> = [];
+      const realFetch = globalThis.fetch;
+      globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+        if (String(url).includes("api.openai.com")) {
+          bodies.push(JSON.parse(String(init?.body ?? "{}")));
+          return new Response(JSON.stringify({ choices: [{ message: { content: "Zlatni medaljon sa slikom." } }], usage: { total_tokens: 15 } }), {
+            status: 200,
+            headers: { "content-type": "application/json" }
+          });
+        }
+        return new Response(new Uint8Array([1, 2, 3, 4]), { status: 200, headers: { "content-type": "image/jpeg" } });
+      }) as typeof fetch;
+      try {
+        await processMetaWebhook(messengerImagePayload(PAGE1, "cust-img-vision", "img-vision-1", "https://cdn.meta/medaljon.jpg"), fastDeps);
+        const visionCall = bodies[0];
+        const visionText = (visionCall.messages[0].content as Array<{ type: string; text?: string }>).find((p) => p.type === "text")?.text ?? "";
+        expect(visionText).toContain("medaljon");
+        expect(visionText).toContain("narukvica");
+      } finally {
+        globalThis.fetch = realFetch;
+      }
+    });
+
     it("image download fails (Meta CDN unreachable): never crashes into the silent apology", async () => {
       const realFetch = globalThis.fetch;
       globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {

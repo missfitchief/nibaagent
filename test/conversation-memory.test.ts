@@ -352,6 +352,11 @@ describe("conversation memory", () => {
     expect(calls.length).toBe(1);
     expect(calls[0].system).toContain("ORDER IN PROGRESS");
     expect(calls[0].system).toContain("ime i prezime"); // still-missing list is steered
+    // Regression: a price quoted earlier for one product (e.g. a bracelet)
+    // must never get reused when the customer is now asking about a
+    // different item (e.g. a medallion) — every price must come from
+    // PRODUCTS and be for the CURRENT item.
+    expect(calls[0].system).toContain("A price belongs to ONE specific product");
     expect(calls[0].messages.some((m) => m.content.includes("lampu"))).toBe(true);
 
     // 3) the order is still active afterwards — a bare value resumes collection
