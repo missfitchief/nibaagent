@@ -14,6 +14,7 @@ import {
   users
 } from "@/lib/db/schema";
 import { estimateSavings } from "@/lib/plans";
+import { aiCostWindows } from "@/lib/usage";
 import { maskToken } from "@/lib/crypto";
 import { knowledgeSources } from "@/lib/db/schema";
 import { listProducts } from "@/lib/products";
@@ -97,15 +98,8 @@ export default async function AdminBusinessDetail({
     .from(messages)
     .where(eq(messages.businessId, id));
   // AI cost broken out by window (USD — the currency providers actually bill
-  // in, no FX estimate layered on top). One query, three FILTER aggregates.
-  const [aiCostWindows] = await d
-    .select({
-      daily: sql<string>`coalesce(sum(${messages.costEstimate}) filter (where ${messages.createdAt} >= now() - interval '1 day'), 0)`,
-      weekly: sql<string>`coalesce(sum(${messages.costEstimate}) filter (where ${messages.createdAt} >= now() - interval '7 days'), 0)`,
-      monthly: sql<string>`coalesce(sum(${messages.costEstimate}) filter (where ${messages.createdAt} >= now() - interval '30 days'), 0)`
-    })
-    .from(messages)
-    .where(eq(messages.businessId, id));
+  // in, no FX estimate layered on top), strictly scoped to this business.
+  const costWindows = await aiCostWindows(id);
   const [orderCount] = await d.select({ n: sql<number>`count(*)::int` }).from(orders).where(eq(orders.businessId, id));
   const [handoffOpen] = await d
     .select({ n: sql<number>`count(*)::int` })
@@ -604,9 +598,9 @@ export default async function AdminBusinessDetail({
       </section>
 
       <section className="grid grid-cols-3 gap-3">
-        <Stat label="AI cost — today" value={`$${Number(aiCostWindows?.daily ?? 0).toFixed(2)}`} />
-        <Stat label="AI cost — 7 days" value={`$${Number(aiCostWindows?.weekly ?? 0).toFixed(2)}`} />
-        <Stat label="AI cost — 30 days" value={`$${Number(aiCostWindows?.monthly ?? 0).toFixed(2)}`} />
+        <Stat label="AI cost — today" value={`$${costWindows.daily.toFixed(2)}`} />
+        <Stat label="AI cost — 7 days" value={`$${costWindows.weekly.toFixed(2)}`} />
+        <Stat label="AI cost — 30 days" value={`$${costWindows.monthly.toFixed(2)}`} />
       </section>
 
       <section className="grid gap-4 lg:grid-cols-2">

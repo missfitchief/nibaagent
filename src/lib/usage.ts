@@ -1,5 +1,5 @@
 import "server-only";
-import { and, count, eq, gte } from "drizzle-orm";
+import { and, count, eq, gte, sql } from "drizzle-orm";
 import { db } from "./db/client";
 import { messages, orders, type Plan } from "./db/schema";
 import { estimateSavings, planDef } from "./plans";
@@ -74,4 +74,32 @@ export async function monthlyValueStats(businessId: string, now: Date = new Date
   const replies = r?.n ?? 0;
   const s = estimateSavings(replies);
   return { replies, orders: o?.n ?? 0, savedMinutes: s.savedMinutes, savedEur: s.savedEur };
+}
+
+export interface AiCostWindows {
+  daily: number;
+  weekly: number;
+  monthly: number;
+}
+
+/**
+ * AI cost (USD) for one business, over three rolling windows — admin-only
+ * ("Est. AI cost" is never exposed client-side, see /admin). Strictly scoped
+ * by businessId, same as every other query in this file: two businesses'
+ * spend never mixes, even if their messages were sent in the same second.
+ */
+export async function aiCostWindows(businessId: string, now: Date = new Date()): Promise<AiCostWindows> {
+  const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const d = db();
+  const sumSince = async (since: Date) => {
+    const [row] = await d
+      .select({ c: sql<string>`coalesce(sum(${messages.costEstimate}), 0)` })
+      .from(messages)
+      .where(and(eq(messages.businessId, businessId), gte(messages.createdAt, since)));
+    return Number(row?.c ?? 0);
+  };
+  const [daily, weekly, monthly] = await Promise.all([sumSince(dayAgo), sumSince(weekAgo), sumSince(monthAgo)]);
+  return { daily, weekly, monthly };
 }

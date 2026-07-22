@@ -10,6 +10,7 @@ import {
   resolveTelegram
 } from "../src/lib/secrets";
 import { resetEnvCache } from "../src/lib/env";
+import { aiCostWindows } from "../src/lib/usage";
 
 /**
  * Multi-tenant isolation proofs required by the SaaS spec. Two businesses (A, B)
@@ -43,6 +44,40 @@ describe("tenant isolation", () => {
     const aConvs = await db.select().from(schema.conversations).where(eq(schema.conversations.businessId, A.business.id));
     expect(aConvs).toHaveLength(1);
     expect(aConvs[0].senderId).toBe("cust-A");
+  });
+
+  it("AI cost windows (daily/weekly/monthly) never mix between businesses", async () => {
+    const [convoA] = await db.insert(schema.conversations).values({ businessId: A.business.id, channel: "instagram", senderId: "cost-cust-A" }).returning();
+    const [convoB] = await db.insert(schema.conversations).values({ businessId: B.business.id, channel: "instagram", senderId: "cost-cust-B" }).returning();
+    const now = new Date();
+    // Same timestamp, same channel/sender shape — only businessId differs.
+    await db.insert(schema.messages).values({
+      businessId: A.business.id,
+      conversationId: convoA.id,
+      channel: "instagram",
+      direction: "outbound",
+      aiGenerated: true,
+      costEstimate: "1.500000",
+      createdAt: now
+    });
+    await db.insert(schema.messages).values({
+      businessId: B.business.id,
+      conversationId: convoB.id,
+      channel: "instagram",
+      direction: "outbound",
+      aiGenerated: true,
+      costEstimate: "9.990000",
+      createdAt: now
+    });
+
+    const costA = await aiCostWindows(A.business.id, now);
+    const costB = await aiCostWindows(B.business.id, now);
+    expect(costA.daily).toBe(1.5);
+    expect(costA.weekly).toBe(1.5);
+    expect(costA.monthly).toBe(1.5);
+    expect(costB.daily).toBe(9.99);
+    expect(costB.weekly).toBe(9.99);
+    expect(costB.monthly).toBe(9.99);
   });
 
   it("a business owner is not the owner of another business (guard precondition)", async () => {
