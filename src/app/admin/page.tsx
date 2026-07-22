@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { count, eq, sql } from "drizzle-orm";
+import { and, count, desc, eq, isNull, sql } from "drizzle-orm";
 import { requireAdmin } from "@/lib/auth/guards";
 import { db } from "@/lib/db/client";
-import { businesses, handoffs, messages, orders, users } from "@/lib/db/schema";
+import { businesses, eventLogs, messages, metaConnections } from "@/lib/db/schema";
 import { Badge, Card, Stat } from "@/components/ui";
 
 export default async function AdminOverview() {
@@ -10,36 +10,85 @@ export default async function AdminOverview() {
   const d = db();
 
   const [bizCount] = await d.select({ n: count() }).from(businesses);
-  const [userCount] = await d.select({ n: count() }).from(users);
-  const [msgCount] = await d.select({ n: count() }).from(messages);
-  const [aiCount] = await d.select({ n: count() }).from(messages).where(eq(messages.aiGenerated, true));
-  const [orderCount] = await d.select({ n: count() }).from(orders);
-  const [handoffCount] = await d.select({ n: count() }).from(handoffs);
-  const [costRow] = await d.select({ c: sql<string>`coalesce(sum(${messages.costEstimate}), 0)` }).from(messages);
 
-  const latest = await d.select().from(businesses).orderBy(sql`${businesses.createdAt} desc`).limit(8);
+  // Connection health — the thing that actually breaks a client's bot (broken
+  // webhook/token) without anyone noticing until a customer complains. See at
+  // a glance instead of manually running Test connection on every business.
+  const [connStats] = await d
+    .select({
+      total: count(),
+      errored: sql<number>`count(*) filter (where ${metaConnections.status} = 'error')::int`
+    })
+    .from(metaConnections);
+  const brokenConnections = await d
+    .select({ businessId: metaConnections.businessId, businessName: metaConnections.businessName, pageId: metaConnections.pageId })
+    .from(metaConnections)
+    .where(eq(metaConnections.status, "error"));
+
+  const [unresolvedErrors] = await d
+    .select({ n: count() })
+    .from(eventLogs)
+    .where(and(eq(eventLogs.level, "error"), isNull(eventLogs.resolvedAt)));
+
+  const [cost30d] = await d
+    .select({ c: sql<string>`coalesce(sum(${messages.costEstimate}) filter (where ${messages.createdAt} >= now() - interval '30 days'), 0)` })
+    .from(messages);
+
+  const latest = await d.select().from(businesses).orderBy(desc(businesses.createdAt)).limit(8);
+  const needsAttention = brokenConnections.length > 0 || (unresolvedErrors?.n ?? 0) > 0;
 
   return (
     <main className="space-y-5">
       <header className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Control center</h1>
-          <p className="text-sm text-[var(--ink-soft)]">Platform-wide view across every business.</p>
+          <p className="text-sm text-[var(--ink-soft)]">Platform health across every business.</p>
         </div>
         <Link href="/admin/businesses" className="btn-primary rounded-xl px-4 py-2 text-sm font-medium">
           Manage businesses
         </Link>
       </header>
 
-      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4 xl:grid-cols-7">
+      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label="Businesses" value={bizCount?.n ?? 0} />
-        <Stat label="Users" value={userCount?.n ?? 0} />
-        <Stat label="Messages" value={msgCount?.n ?? 0} />
-        <Stat label="AI replies" value={aiCount?.n ?? 0} />
-        <Stat label="Orders" value={orderCount?.n ?? 0} />
-        <Stat label="Handoffs" value={handoffCount?.n ?? 0} />
-        <Stat label="Est. AI cost" value={`$${Number(costRow?.c ?? 0).toFixed(2)}`} />
+        <Stat
+          label="Broken connections"
+          value={connStats?.errored ?? 0}
+          tone={connStats?.errored ? "warn" : "ok"}
+          hint={`of ${connStats?.total ?? 0} connected`}
+        />
+        <Stat label="Unresolved errors" value={unresolvedErrors?.n ?? 0} tone={unresolvedErrors?.n ? "warn" : "ok"} />
+        <Stat label="AI cost — 30 days" value={`$${Number(cost30d?.c ?? 0).toFixed(2)}`} />
       </section>
+
+      {needsAttention ? (
+        <Card className="border-amber-200 bg-amber-50/50">
+          <h2 className="font-semibold text-amber-800">Needs attention</h2>
+          <ul className="mt-2 space-y-1.5 text-sm">
+            {brokenConnections.map((c) => (
+              <li key={c.businessId}>
+                <Badge tone="error">connection</Badge>{" "}
+                <Link href={`/admin/businesses/${c.businessId}?tab=channels`} className="text-sky-600 hover:underline">
+                  {c.businessName || c.pageId}
+                </Link>{" "}
+                — page/token needs reconnecting
+              </li>
+            ))}
+            {(unresolvedErrors?.n ?? 0) > 0 && (
+              <li>
+                <Badge tone="error">errors</Badge>{" "}
+                <Link href="/admin/logs" className="text-sky-600 hover:underline">
+                  {unresolvedErrors!.n} unresolved error{unresolvedErrors!.n === 1 ? "" : "s"} across the platform
+                </Link>
+              </li>
+            )}
+          </ul>
+        </Card>
+      ) : (
+        <Card className="border-emerald-200 bg-emerald-50/50">
+          <p className="text-sm text-emerald-800">✓ All connections healthy, no unresolved errors.</p>
+        </Card>
+      )}
 
       <Card>
         <h2 className="font-semibold">Newest businesses</h2>
