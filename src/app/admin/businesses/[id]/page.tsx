@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, gte, sql } from "drizzle-orm";
 import { requireAdmin } from "@/lib/auth/guards";
 import { db } from "@/lib/db/client";
 import {
@@ -15,6 +15,7 @@ import {
 } from "@/lib/db/schema";
 import { estimateSavings } from "@/lib/plans";
 import { aiCostWindows } from "@/lib/usage";
+import { resetCostTrackingAction } from "@/lib/actions/admin";
 import { maskToken } from "@/lib/crypto";
 import { knowledgeSources } from "@/lib/db/schema";
 import { listProducts } from "@/lib/products";
@@ -91,15 +92,25 @@ export default async function AdminBusinessDetail({
   const [msg] = await d
     .select({
       n: sql<number>`count(*)::int`,
-      ai: sql<number>`count(*) filter (where ${messages.aiGenerated})::int`,
+      ai: sql<number>`count(*) filter (where ${messages.aiGenerated})::int`
+    })
+    .from(messages)
+    .where(eq(messages.businessId, id));
+  // AI cost — "all-time" here means "since the last reset" when the admin has
+  // reset tracking (e.g. after switching this business to its own API key),
+  // so a stale/inflated estimate never lingers after the fix that caused it
+  // is gone. Message/AI-reply counts above are NOT clamped — those reflect
+  // real activity regardless of cost-tracking resets.
+  const [costRow] = await d
+    .select({
       cost: sql<string>`coalesce(sum(${messages.costEstimate}), 0)`,
       tokens: sql<number>`coalesce(sum(${messages.tokenUsageEstimate}), 0)::int`
     })
     .from(messages)
-    .where(eq(messages.businessId, id));
+    .where(and(eq(messages.businessId, id), biz.costTrackingSince ? gte(messages.createdAt, biz.costTrackingSince) : sql`true`));
   // AI cost broken out by window (USD — the currency providers actually bill
   // in, no FX estimate layered on top), strictly scoped to this business.
-  const costWindows = await aiCostWindows(id);
+  const costWindows = await aiCostWindows(id, undefined, biz.costTrackingSince);
   const [orderCount] = await d.select({ n: sql<number>`count(*)::int` }).from(orders).where(eq(orders.businessId, id));
   const [handoffOpen] = await d
     .select({ n: sql<number>`count(*)::int` })
@@ -593,7 +604,11 @@ export default async function AdminBusinessDetail({
         <Stat label="AI replies" value={msg?.ai ?? 0} />
         <Stat label="Orders" value={orderCount?.n ?? 0} />
         <Stat label="Open handoffs" value={handoffOpen?.n ?? 0} tone={handoffOpen?.n ? "warn" : "default"} hint={`${handoffRate}% of msgs`} />
-        <Stat label="AI cost (all-time)" value={`$${Number(msg?.cost ?? 0).toFixed(2)}`} hint={`${(msg?.tokens ?? 0).toLocaleString()} tokens`} />
+        <Stat
+          label={biz.costTrackingSince ? "AI cost (since reset)" : "AI cost (all-time)"}
+          value={`$${Number(costRow?.cost ?? 0).toFixed(2)}`}
+          hint={`${(costRow?.tokens ?? 0).toLocaleString()} tokens`}
+        />
         <Stat label="Est. saved" value={`€${savings.savedEur}`} tone="ok" />
       </section>
 
@@ -602,6 +617,20 @@ export default async function AdminBusinessDetail({
         <Stat label="AI cost — 7 days" value={`$${costWindows.weekly.toFixed(2)}`} />
         <Stat label="AI cost — 30 days" value={`$${costWindows.monthly.toFixed(2)}`} />
       </section>
+
+      <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-[var(--ink-soft)]">
+        <span>
+          {biz.costTrackingSince
+            ? `Praćenje troška resetovano: ${biz.costTrackingSince.toISOString().replace("T", " ").slice(0, 16)} — brojevi iznad su od tog trenutka.`
+            : "Trošak se broji od početka (nikad resetovan)."}
+        </span>
+        <form action={resetCostTrackingAction}>
+          <input type="hidden" name="businessId" value={biz.id} />
+          <button className="rounded-lg border border-[var(--card-border)] bg-white/60 px-3 py-1.5 text-xs hover:bg-white">
+            Resetuj praćenje troška (počni od sada)
+          </button>
+        </form>
+      </div>
 
       <section className="grid gap-4 lg:grid-cols-2">
         <AdminBusinessForm

@@ -80,6 +80,46 @@ describe("tenant isolation", () => {
     expect(costB.monthly).toBe(9.99);
   });
 
+  it("a cost-tracking reset excludes pre-reset spend but still counts spend after it", async () => {
+    // Regression: after a business switches to its own API key (or any time
+    // the historical estimate is known to be wrong — e.g. computed against a
+    // bad per-model price), the admin can reset cost tracking so stale
+    // numbers stop showing without rewriting the underlying message rows.
+    const C = await seedBusiness(db, "ResetCo");
+    const [convo] = await db.insert(schema.conversations).values({ businessId: C.business.id, channel: "instagram", senderId: "reset-cust" }).returning();
+    const now = new Date();
+    // All three points sit inside the 30-day window, so only the reset
+    // clamp (not the window itself) can explain the "before" message
+    // dropping out.
+    const before = new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000);
+    const resetPoint = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000);
+    const after = new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000);
+    await db.insert(schema.messages).values({
+      businessId: C.business.id,
+      conversationId: convo.id,
+      channel: "instagram",
+      direction: "outbound",
+      aiGenerated: true,
+      costEstimate: "7.000000",
+      createdAt: before
+    });
+    await db.insert(schema.messages).values({
+      businessId: C.business.id,
+      conversationId: convo.id,
+      channel: "instagram",
+      direction: "outbound",
+      aiGenerated: true,
+      costEstimate: "1.500000",
+      createdAt: after
+    });
+
+    const beforeReset = await aiCostWindows(C.business.id, now, null);
+    expect(beforeReset.monthly).toBeCloseTo(8.5); // no reset yet — both messages count
+
+    const afterReset = await aiCostWindows(C.business.id, now, resetPoint);
+    expect(afterReset.monthly).toBeCloseTo(1.5); // only the post-reset message counts
+  });
+
   it("a business owner is not the owner of another business (guard precondition)", async () => {
     // The requireBusiness guard filters by ownerUserId for clients; simulate it.
     const asClient = await db

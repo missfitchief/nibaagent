@@ -8,7 +8,7 @@ import { updateBotSettingsAction, setAiModeAction, updateBusinessSettingsAction 
 import { createKnowledgeAction, deleteKnowledgeAction } from "../src/lib/actions/knowledge";
 import { resolveHandoffAction, setOrderStatusAction } from "../src/lib/actions/inbox";
 import { telegramTestAction, testBotAction, testImageRecognitionAction } from "../src/lib/actions/tools";
-import { adminUpdateBusinessAction } from "../src/lib/actions/admin";
+import { adminUpdateBusinessAction, resetCostTrackingAction } from "../src/lib/actions/admin";
 import { deleteBusinessAction } from "../src/lib/actions/danger";
 import { resolveAllErrorLogsAction } from "../src/lib/actions/logs";
 import { hashPassword } from "../src/lib/auth/password";
@@ -297,5 +297,32 @@ describe("resolveAllErrorLogsAction: platform-admin-only, clears the whole error
     expect(warnAfter[0].resolvedAt).toBeNull(); // only level="error" rows are touched
     const preResolvedAfter = await db.select().from(schema.eventLogs).where(eq(schema.eventLogs.id, preResolved.id));
     expect(preResolvedAfter[0].resolvedAt?.getTime()).toBe(alreadyResolvedAt.getTime()); // untouched, not re-stamped
+  });
+});
+
+describe("resetCostTrackingAction: platform-admin-only, sets costTrackingSince without touching message rows", () => {
+  it("rejects a business-role admin/owner — platform admin only", async () => {
+    await asBizAdmin();
+    await expect(resetCostTrackingAction(fd({ businessId: A.business.id }))).rejects.toThrow(/NEXT_REDIRECT/);
+    const biz = (await db.select().from(schema.businesses).where(eq(schema.businesses.id, A.business.id)))[0];
+    expect(biz.costTrackingSince).toBeNull();
+  });
+
+  it("sets costTrackingSince to now for the platform admin", async () => {
+    const [platformAdmin] = await db
+      .insert(schema.users)
+      .values({ email: "cost-reset-admin@test.local", name: "A", passwordHash: "x", role: "admin" })
+      .returning();
+    sessionState.token = await makeSession(platformAdmin.id, "admin", platformAdmin.email);
+
+    const before = Date.now();
+    await resetCostTrackingAction(fd({ businessId: A.business.id }));
+    const after = Date.now();
+
+    const biz = (await db.select().from(schema.businesses).where(eq(schema.businesses.id, A.business.id)))[0];
+    expect(biz.costTrackingSince).not.toBeNull();
+    const t = biz.costTrackingSince!.getTime();
+    expect(t).toBeGreaterThanOrEqual(before);
+    expect(t).toBeLessThanOrEqual(after);
   });
 });

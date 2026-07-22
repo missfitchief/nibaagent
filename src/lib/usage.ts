@@ -88,16 +88,23 @@ export interface AiCostWindows {
  * by businessId, same as every other query in this file: two businesses'
  * spend never mixes, even if their messages were sent in the same second.
  */
-export async function aiCostWindows(businessId: string, now: Date = new Date()): Promise<AiCostWindows> {
+export async function aiCostWindows(
+  businessId: string,
+  now: Date = new Date(),
+  costTrackingSince?: Date | null
+): Promise<AiCostWindows> {
   const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
   const d = db();
+  // A reset point never makes a window LONGER — it only clamps the start
+  // forward (e.g. "today" stays "today" even if the reset was last month).
+  const clamp = (since: Date) => (costTrackingSince && costTrackingSince > since ? costTrackingSince : since);
   const sumSince = async (since: Date) => {
     const [row] = await d
       .select({ c: sql<string>`coalesce(sum(${messages.costEstimate}), 0)` })
       .from(messages)
-      .where(and(eq(messages.businessId, businessId), gte(messages.createdAt, since)));
+      .where(and(eq(messages.businessId, businessId), gte(messages.createdAt, clamp(since))));
     return Number(row?.c ?? 0);
   };
   const [daily, weekly, monthly] = await Promise.all([sumSince(dayAgo), sumSince(weekAgo), sumSince(monthAgo)]);

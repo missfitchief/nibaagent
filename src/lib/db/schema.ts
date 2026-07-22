@@ -94,6 +94,8 @@ export const businesses = pgTable(
     googleSheetUrl: text("google_sheet_url").notNull().default(""),
     telegramChannelId: text("telegram_channel_id").notNull().default(""),
     whatsappNotificationTarget: text("whatsapp_notification_target").notNull().default(""),
+    /** Admin-settable "start counting from here" point for the AI cost stats — set when a business switches to its own API key (or any time the historical estimate is known to be unreliable) so the displayed figure is trustworthy going forward without rewriting past message rows. Null = since the beginning. */
+    costTrackingSince: timestamp("cost_tracking_since", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
   },

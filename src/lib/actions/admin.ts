@@ -242,3 +242,22 @@ export async function adminResubscribeWebhookAction(_prev: ActionState, formData
   revalidatePath(`/admin/businesses/${parsed.data.businessId}`);
   return { ok: true };
 }
+
+const ResetCostTracking = z.object({ businessId: z.string().uuid() });
+
+/**
+ * Sets businesses.costTrackingSince = now(). The AI-cost stats (all-time +
+ * daily/7d/30d) on the Overview tab clamp to this point instead of showing
+ * pre-reset numbers — for when a business switches to its own API key, or
+ * any time the historical estimate is known to be unreliable (e.g. it was
+ * computed against a wrong per-model price). Never rewrites past message
+ * rows — this only changes what the aggregate queries include.
+ */
+export async function resetCostTrackingAction(formData: FormData): Promise<void> {
+  const admin = await requireAdmin();
+  const parsed = ResetCostTracking.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return;
+  await db().update(businesses).set({ costTrackingSince: new Date() }).where(eq(businesses.id, parsed.data.businessId));
+  await audit(admin.userId, "business.cost_tracking_reset", parsed.data.businessId, {});
+  revalidatePath(`/admin/businesses/${parsed.data.businessId}`);
+}
