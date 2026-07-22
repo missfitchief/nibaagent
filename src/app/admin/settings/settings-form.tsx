@@ -200,7 +200,7 @@ export function PlatformSettingsForm({
           </div>
           <SecretField f={F("OPENAI_API_KEY")} />
           <div className="grid gap-3 sm:grid-cols-2">
-            <TextField f={F("DEFAULT_OPENAI_MODEL")} placeholder="gpt-4o-mini" />
+            <TextField f={F("DEFAULT_OPENAI_MODEL")} placeholder="gpt-4o" />
             <TextField f={F("DEFAULT_VISION_MODEL")} placeholder="gpt-4o-mini (vision-capable)" />
           </div>
           <SecretField f={F("OPENAI_ADMIN_API_KEY")} />

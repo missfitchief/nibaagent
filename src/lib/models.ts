@@ -18,8 +18,8 @@ export const PROVIDERS: { value: Provider; label: string }[] = [
 /** Curated dropdown suggestions per provider. Custom input is always allowed. */
 export const RECOMMENDED_MODELS: Record<Provider, { value: string; label: string }[]> = {
   openai: [
-    { value: "gpt-4o-mini", label: "gpt-4o-mini — fast & cheap (default)" },
-    { value: "gpt-4o", label: "gpt-4o — strongest OpenAI vision+text" },
+    { value: "gpt-4o", label: "gpt-4o — strongest OpenAI vision+text (default)" },
+    { value: "gpt-4o-mini", label: "gpt-4o-mini — fast & cheap" },
     { value: "gpt-4.1-mini", label: "gpt-4.1-mini" },
     { value: "gpt-4.1", label: "gpt-4.1" }
   ],
@@ -32,11 +32,11 @@ export const RECOMMENDED_MODELS: Record<Provider, { value: string; label: string
 
 /** App-level fallback if neither business nor platform sets a model. */
 export const APP_DEFAULT_MODEL: Record<Provider, string> = {
-  openai: "gpt-4o-mini",
+  openai: "gpt-4o",
   anthropic: "claude-3-5-haiku-latest"
 };
 
-export const APP_DEFAULT_VISION_MODEL = "gpt-4o-mini";
+export const APP_DEFAULT_VISION_MODEL = "gpt-4o";
 
 /** Trim + cap length. Returns "" for empty/invalid so callers can fall back. */
 export function sanitizeModel(raw: string | null | undefined): string {

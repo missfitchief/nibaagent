@@ -89,7 +89,7 @@ const AdminBusinessUpdate = z.object({
   handoffEnabled: z.coerce.boolean().default(false),
   // Free-text model name — NO hard allow-list; unknown/future models are accepted.
   aiProvider: z.enum(["openai", "anthropic"]).default("openai"),
-  selectedModel: z.string().max(120).default("gpt-4o-mini"),
+  selectedModel: z.string().max(120).default("gpt-4o"),
   dailyMessageLimit: z.coerce.number().int().min(0).max(1_000_000),
   monthlyMessageLimit: z.coerce.number().int().min(0).max(10_000_000),
   tone: z.string().max(40),

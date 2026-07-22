@@ -88,7 +88,7 @@ export const businesses = pgTable(
     aiMode: text("ai_mode", { enum: ["draft", "live", "paused"] }).notNull().default("draft"),
     dailyMessageLimit: integer("daily_message_limit").notNull().default(200),
     monthlyMessageLimit: integer("monthly_message_limit").notNull().default(3000),
-    selectedModel: text("selected_model").notNull().default("gpt-4o-mini"),
+    selectedModel: text("selected_model").notNull().default("gpt-4o"),
     tone: text("tone").notNull().default("friendly"),
     defaultLanguage: text("default_language").notNull().default("sr"),
     googleSheetUrl: text("google_sheet_url").notNull().default(""),
