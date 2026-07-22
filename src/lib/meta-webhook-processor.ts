@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, gt, ne } from "drizzle-orm";
+import { and, desc, eq, gt, lt, ne } from "drizzle-orm";
 import { db } from "./db/client";
 import { businesses, messages, metaConnections, processedMessages } from "./db/schema";
 import { decryptToken } from "./crypto";
@@ -196,13 +196,44 @@ async function processOne(ev: ParsedInbound, deps: ProcessorDeps): Promise<boole
     return false;
   }
 
+  // 4b. a customer very commonly sends a photo, then a SEPARATE follow-up
+  // message asking about it ("koliko je ovo?") a few seconds later. Each
+  // Meta event is its own webhook call — the earlier (image) run gets
+  // superseded by step 4 above and never calls the engine at all, so
+  // without this, the later text-only run answers completely blind: no
+  // image, no vision analysis, nothing to ground the reply in, and the
+  // model falls back on stale conversation memory (e.g. a DIFFERENT
+  // product discussed days earlier) instead of the item just shown. Pull
+  // the most recent image from this conversation (last 5 minutes — long
+  // enough for a real burst, short enough to never reattach a stale photo
+  // from an unrelated earlier exchange) when this message has none of its own.
+  let imageUrl = ev.imageUrl || undefined;
+  if (!imageUrl) {
+    const recentImageCutoff = new Date(mine.createdAt.getTime() - 5 * 60 * 1000);
+    const [recentImage] = await d
+      .select({ imageUrl: messages.imageUrl })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.conversationId, convo.id),
+          eq(messages.direction, "inbound"),
+          ne(messages.imageUrl, ""),
+          lt(messages.createdAt, mine.createdAt),
+          gt(messages.createdAt, recentImageCutoff)
+        )
+      )
+      .orderBy(desc(messages.createdAt))
+      .limit(1);
+    if (recentImage?.imageUrl) imageUrl = recentImage.imageUrl;
+  }
+
   // 5. engine (conversation memory + rules + AI). AI/key failures throw here —
   //    catch and answer with a short apology so the customer is never ignored.
   let replyToSend = "";
   try {
     const result = await runEngine(businessId, ev.text, {
       ...deps.engineOptions,
-      imageUrl: ev.imageUrl || undefined,
+      imageUrl,
       adTitle: ev.adTitle,
       conversation: conversationKey,
       inboundAlreadySaved: true

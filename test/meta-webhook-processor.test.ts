@@ -499,6 +499,56 @@ describe("meta webhook processor", () => {
       }
     });
 
+    it("image then a separate quick caption ('cena') still analyzes the photo — the image is not dropped by burst merge", async () => {
+      // Regression for a real prod bug: a customer sent a photo, then — as a
+      // SEPARATE message a second later — typed "cena". Each Meta event is
+      // its own webhook call; the image event gets superseded by the burst
+      // debounce (step 4) and never reaches the engine at all, so the run
+      // that actually replies (triggered by "cena") had no image attached to
+      // ITS OWN event. Without carrying the image forward, that run answers
+      // completely blind — no vision call, nothing to ground the reply in —
+      // and the model falls back on stale conversation memory (quoting a
+      // different, earlier-discussed item's price instead of the one just
+      // shown).
+      const bodies: Array<{ messages: Array<{ content: unknown }> }> = [];
+      const realFetch = globalThis.fetch;
+      globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+        if (String(url).includes("api.openai.com")) {
+          bodies.push(JSON.parse(String(init?.body ?? "{}")));
+          return new Response(JSON.stringify({ choices: [{ message: { content: "Medaljon sa slikom je 38.90 BAM." } }], usage: { total_tokens: 20 } }), {
+            status: 200,
+            headers: { "content-type": "application/json" }
+          });
+        }
+        return new Response(new Uint8Array([1, 2, 3, 4]), { status: 200, headers: { "content-type": "image/jpeg" } });
+      }) as typeof fetch;
+      try {
+        const sender = "cust-img-then-caption";
+        const imgPayload = messengerImagePayload(PAGE1, sender, "img-burst-1", "https://cdn.meta/medaljon2.jpg", 1000);
+        const textPayload = messengerPayload(PAGE1, sender, "img-burst-2", "cena", 1001);
+        const deps = { sleep: (ms: number) => new Promise<void>((r) => setTimeout(r, Math.min(ms, 120))), sendText: sendSpy, debounceMs: 100 };
+        const runs = [
+          new Promise<void>((res) => setTimeout(() => void processMetaWebhook(imgPayload, deps).then(() => res()), 0)),
+          new Promise<void>((res) => setTimeout(() => void processMetaWebhook(textPayload, deps).then(() => res()), 10))
+        ];
+        await Promise.all(runs);
+
+        // Only the later ("cena") run replies — same burst-merge behavior as before.
+        expect(sent).toHaveLength(1);
+        // But that reply's answering call must still show a vision call happened
+        // (2+ OpenAI calls) and the FINAL call still carries the photo, proving
+        // the image was carried forward instead of silently dropped.
+        expect(bodies.length).toBeGreaterThanOrEqual(2);
+        const answer = bodies[bodies.length - 1];
+        const lastMsg = answer.messages[answer.messages.length - 1];
+        expect(Array.isArray(lastMsg.content)).toBe(true);
+        const parts = lastMsg.content as Array<{ type: string; image_url?: { url: string } }>;
+        expect(parts.some((p) => p.type === "image_url" && p.image_url?.url.startsWith("data:image/"))).toBe(true);
+      } finally {
+        globalThis.fetch = realFetch;
+      }
+    });
+
     it("image download fails (Meta CDN unreachable): never crashes into the silent apology", async () => {
       const realFetch = globalThis.fetch;
       globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
