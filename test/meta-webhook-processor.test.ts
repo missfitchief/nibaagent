@@ -499,6 +499,32 @@ describe("meta webhook processor", () => {
       }
     });
 
+    it("vision prompt asks it to transcribe visible text (screenshots — price, name, link)", async () => {
+      // A customer forwarding a screenshot of the shop's own site/post is a
+      // stronger signal than a photo — whatever price/name is actually
+      // printed on it should reach the answering model verbatim instead of
+      // being paraphrased away.
+      const bodies: Array<{ messages: Array<{ content: unknown }> }> = [];
+      const realFetch = globalThis.fetch;
+      globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+        if (String(url).includes("api.openai.com")) {
+          bodies.push(JSON.parse(String(init?.body ?? "{}")));
+          return new Response(JSON.stringify({ choices: [{ message: { content: "Medaljon sa slikom. Vidljiv tekst na slici: 38.90 BAM." } }], usage: { total_tokens: 15 } }), {
+            status: 200,
+            headers: { "content-type": "application/json" }
+          });
+        }
+        return new Response(new Uint8Array([1, 2, 3, 4]), { status: 200, headers: { "content-type": "image/jpeg" } });
+      }) as typeof fetch;
+      try {
+        await processMetaWebhook(messengerImagePayload(PAGE1, "cust-img-screenshot", "img-screenshot-1", "https://cdn.meta/screenshot.jpg"), fastDeps);
+        const visionText = (bodies[0].messages[0].content as Array<{ type: string; text?: string }>).find((p) => p.type === "text")?.text ?? "";
+        expect(visionText).toMatch(/vidljiv tekst/i);
+      } finally {
+        globalThis.fetch = realFetch;
+      }
+    });
+
     it("image then a separate quick caption ('cena') still analyzes the photo — the image is not dropped by burst merge", async () => {
       // Regression for a real prod bug: a customer sent a photo, then — as a
       // SEPARATE message a second later — typed "cena". Each Meta event is

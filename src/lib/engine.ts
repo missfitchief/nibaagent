@@ -914,7 +914,7 @@ export async function runEngine(businessId: string, message: string, opts: Engin
 // jewelry-type word matters for matchProducts()'s stem matching, so the
 // model is told to pick one explicitly rather than paraphrase.
 const VISION_PROMPT =
-  "Opiši ovu sliku proizvoda u 1-2 rečenice. Prva reč MORA biti tačan tip nakita sa liste: medaljon, ogrlica, narukvica, minđuše, prsten, privezak — izaberi onaj koji najbolje odgovara, čak i ako je artikal ukrašen ili personalizovan (npr. medaljon sa slikom je i dalje 'medaljon', ne 'ogrlica'). Zatim boja, materijal i uočljivi detalji. Bez izmišljanja cene ili dostupnosti.";
+  "Opiši ovu sliku proizvoda u 1-2 rečenice. Prva reč MORA biti tačan tip nakita sa liste: medaljon, ogrlica, narukvica, minđuše, prsten, privezak — izaberi onaj koji najbolje odgovara, čak i ako je artikal ukrašen ili personalizovan (npr. medaljon sa slikom je i dalje 'medaljon', ne 'ogrlica'). Zatim boja, materijal i uočljivi detalji. Ako je ovo screenshot sajta/objave koji sadrži VIDLJIV tekst (cena, naziv proizvoda, link), prepiši taj tekst TAČNO kao poslednju rečenicu, npr. 'Vidljiv tekst na slici: ...' — ne prepričavaj ga svojim rečima. Bez izmišljanja cene ili dostupnosti koja nije stvarno vidljiva na slici.";
 
 /**
  * Describe an image using the TENANT's own key. Prefers the configured provider;
