@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { desc, eq } from "drizzle-orm";
+import { and, count, desc, eq, isNull } from "drizzle-orm";
 import { requireAdmin } from "@/lib/auth/guards";
 import { db } from "@/lib/db/client";
 import { adminAuditLogs, eventLogs, users } from "@/lib/db/schema";
+import { resolveAllErrorLogsAction } from "@/lib/actions/logs";
 import { Badge, Card } from "@/components/ui";
 
 export default async function LogsPage({
@@ -21,6 +22,11 @@ export default async function LogsPage({
     .where(level === "error" ? eq(eventLogs.level, "error") : undefined)
     .orderBy(desc(eventLogs.createdAt))
     .limit(100);
+  const [unresolvedRow] = await d
+    .select({ n: count() })
+    .from(eventLogs)
+    .where(and(eq(eventLogs.level, "error"), isNull(eventLogs.resolvedAt)));
+  const unresolvedTotal = unresolvedRow?.n ?? 0;
   const audits = await d
     .select({ a: adminAuditLogs, email: users.email })
     .from(adminAuditLogs)
@@ -30,9 +36,9 @@ export default async function LogsPage({
 
   return (
     <main className="space-y-5">
-      <header className="flex items-center justify-between">
+      <header className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">Logs & errors</h1>
-        <div className="flex gap-2 text-sm">
+        <div className="flex flex-wrap items-center gap-2 text-sm">
           <Link href="/admin/logs" className={`rounded-lg px-3 py-1.5 ${!level ? "btn-primary" : "border border-[var(--card-border)] bg-white/60"}`}>
             All
           </Link>
@@ -42,6 +48,13 @@ export default async function LogsPage({
           >
             Errors only
           </Link>
+          {unresolvedTotal > 0 && (
+            <form action={resolveAllErrorLogsAction}>
+              <button className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-amber-800 hover:bg-amber-100">
+                Mark all {unresolvedTotal} unresolved as resolved
+              </button>
+            </form>
+          )}
         </div>
       </header>
 

@@ -10,6 +10,7 @@ import { resolveHandoffAction, setOrderStatusAction } from "../src/lib/actions/i
 import { telegramTestAction, testBotAction, testImageRecognitionAction } from "../src/lib/actions/tools";
 import { adminUpdateBusinessAction } from "../src/lib/actions/admin";
 import { deleteBusinessAction } from "../src/lib/actions/danger";
+import { resolveAllErrorLogsAction } from "../src/lib/actions/logs";
 import { hashPassword } from "../src/lib/auth/password";
 
 /**
@@ -260,5 +261,41 @@ describe("deleteBusinessAction: platform-admin-only, gated by the admin's own re
     const res = await deleteBusinessAction({}, fd({ businessId: toDelete.business.id, confirm: toDelete.business.slug, password: "correct-horse-battery" }));
     expect(res.ok).toBe(true);
     expect(await db.select().from(schema.businesses).where(eq(schema.businesses.id, toDelete.business.id))).toHaveLength(0);
+  });
+});
+
+describe("resolveAllErrorLogsAction: platform-admin-only, clears the whole error backlog", () => {
+  it("rejects a business-role admin/owner — platform admin only", async () => {
+    await asBizAdmin();
+    await expect(resolveAllErrorLogsAction()).rejects.toThrow(/NEXT_REDIRECT/);
+  });
+
+  it("resolves every unresolved error across ALL businesses, leaves warn/info and already-resolved rows untouched", async () => {
+    const B = await seedBusiness(db, "ErrLogsBeta");
+    const [platformAdmin] = await db
+      .insert(schema.users)
+      .values({ email: "resolve-admin@test.local", name: "A", passwordHash: "x", role: "admin" })
+      .returning();
+
+    const [errA] = await db.insert(schema.eventLogs).values({ businessId: A.business.id, level: "error", area: "ai_reply", message: "boom A" }).returning();
+    const [errB] = await db.insert(schema.eventLogs).values({ businessId: B.business.id, level: "error", area: "n8n_workflow", message: "boom B" }).returning();
+    const [warnRow] = await db.insert(schema.eventLogs).values({ businessId: A.business.id, level: "warn", area: "ai_reply", message: "meh" }).returning();
+    const alreadyResolvedAt = new Date("2020-01-01T00:00:00Z");
+    const [preResolved] = await db
+      .insert(schema.eventLogs)
+      .values({ businessId: A.business.id, level: "error", area: "ai_reply", message: "old, already handled", resolvedAt: alreadyResolvedAt })
+      .returning();
+
+    sessionState.token = await makeSession(platformAdmin.id, "admin", platformAdmin.email);
+    await resolveAllErrorLogsAction();
+
+    const rows = await db.select().from(schema.eventLogs).where(eq(schema.eventLogs.id, errA.id));
+    expect(rows[0].resolvedAt).not.toBeNull();
+    const rowsB = await db.select().from(schema.eventLogs).where(eq(schema.eventLogs.id, errB.id));
+    expect(rowsB[0].resolvedAt).not.toBeNull(); // platform-wide, not scoped to one business
+    const warnAfter = await db.select().from(schema.eventLogs).where(eq(schema.eventLogs.id, warnRow.id));
+    expect(warnAfter[0].resolvedAt).toBeNull(); // only level="error" rows are touched
+    const preResolvedAfter = await db.select().from(schema.eventLogs).where(eq(schema.eventLogs.id, preResolved.id));
+    expect(preResolvedAfter[0].resolvedAt?.getTime()).toBe(alreadyResolvedAt.getTime()); // untouched, not re-stamped
   });
 });

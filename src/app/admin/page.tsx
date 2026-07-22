@@ -3,6 +3,7 @@ import { and, count, desc, eq, isNull, sql } from "drizzle-orm";
 import { requireAdmin } from "@/lib/auth/guards";
 import { db } from "@/lib/db/client";
 import { businesses, eventLogs, messages, metaConnections } from "@/lib/db/schema";
+import { resolveAllErrorLogsAction } from "@/lib/actions/logs";
 import { Badge, Card, Stat } from "@/components/ui";
 
 export default async function AdminOverview() {
@@ -75,11 +76,18 @@ export default async function AdminOverview() {
               </li>
             ))}
             {(unresolvedErrors?.n ?? 0) > 0 && (
-              <li>
-                <Badge tone="error">errors</Badge>{" "}
-                <Link href="/admin/logs" className="text-sky-600 hover:underline">
-                  {unresolvedErrors!.n} unresolved error{unresolvedErrors!.n === 1 ? "" : "s"} across the platform
-                </Link>
+              <li className="flex flex-wrap items-center justify-between gap-2">
+                <span>
+                  <Badge tone="error">errors</Badge>{" "}
+                  <Link href="/admin/logs?level=error" className="text-sky-600 hover:underline">
+                    {unresolvedErrors!.n} unresolved error{unresolvedErrors!.n === 1 ? "" : "s"} across the platform
+                  </Link>
+                </span>
+                <form action={resolveAllErrorLogsAction}>
+                  <button className="rounded-lg border border-amber-300 bg-white px-2.5 py-1 text-xs text-amber-800 hover:bg-amber-100">
+                    Mark all resolved
+                  </button>
+                </form>
               </li>
             )}
           </ul>
