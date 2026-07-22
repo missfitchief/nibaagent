@@ -96,6 +96,8 @@ export const businesses = pgTable(
     whatsappNotificationTarget: text("whatsapp_notification_target").notNull().default(""),
     /** Admin-settable "start counting from here" point for the AI cost stats — set when a business switches to its own API key (or any time the historical estimate is known to be unreliable) so the displayed figure is trustworthy going forward without rewriting past message rows. Null = since the beginning. */
     costTrackingSince: timestamp("cost_tracking_since", { withTimezone: true }),
+    /** OpenAI API key ID (e.g. "key_abc123", NOT the secret itself — safe to store plain) for this business's own OpenAI key, used to pull real spend from the Costs API. Empty = not set, only our own estimate is shown. */
+    openaiApiKeyId: text("openai_api_key_id").notNull().default(""),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
   },

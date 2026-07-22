@@ -203,6 +203,12 @@ export function PlatformSettingsForm({
             <TextField f={F("DEFAULT_OPENAI_MODEL")} placeholder="gpt-4o-mini" />
             <TextField f={F("DEFAULT_VISION_MODEL")} placeholder="gpt-4o-mini (vision-capable)" />
           </div>
+          <SecretField f={F("OPENAI_ADMIN_API_KEY")} />
+          <p className="-mt-2 text-xs text-[var(--ink-soft)]">
+            Different from the key above — an Organization-level Admin key (platform.openai.com → Settings → Organization →
+            API keys → Admin keys). Used only to pull real spend from OpenAI's Costs API for businesses that have their own
+            API key id set, shown next to our own estimate on their Overview tab.
+          </p>
           <SecretField f={F("ANTHROPIC_API_KEY")} />
           <TextField f={F("DEFAULT_ANTHROPIC_MODEL")} placeholder="claude-3-5-haiku-latest" />
         </div>

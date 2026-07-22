@@ -34,6 +34,8 @@ export const PLATFORM_KEYS = {
   META_APP_SECRET: { secret: true, env: "META_APP_SECRET" },
   META_VERIFY_TOKEN: { secret: true, env: "META_VERIFY_TOKEN" },
   OPENAI_API_KEY: { secret: true, env: "OPENAI_API_KEY" },
+  /** Org-level Admin key (NOT a regular project key) — required for the Costs API, see lib/openai-costs.ts. */
+  OPENAI_ADMIN_API_KEY: { secret: true, env: "OPENAI_ADMIN_API_KEY" },
   ANTHROPIC_API_KEY: { secret: true, env: "ANTHROPIC_API_KEY" },
   TELEGRAM_BOT_TOKEN: { secret: true, env: "TELEGRAM_BOT_TOKEN" },
   TELEGRAM_CHAT_ID: { secret: true, env: "" },

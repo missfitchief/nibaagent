@@ -261,3 +261,22 @@ export async function resetCostTrackingAction(formData: FormData): Promise<void>
   await audit(admin.userId, "business.cost_tracking_reset", parsed.data.businessId, {});
   revalidatePath(`/admin/businesses/${parsed.data.businessId}`);
 }
+
+const SetOpenaiApiKeyId = z.object({ businessId: z.string().uuid(), openaiApiKeyId: z.string().max(120).default("") });
+
+/**
+ * Stores the OpenAI API key id (e.g. "key_abc123" — an identifier, not the
+ * secret) for this business, so the Overview tab can pull real spend from
+ * OpenAI's Costs API via lib/openai-costs.ts. Plain text is fine here.
+ */
+export async function setOpenaiApiKeyIdAction(formData: FormData): Promise<void> {
+  const admin = await requireAdmin();
+  const parsed = SetOpenaiApiKeyId.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return;
+  await db()
+    .update(businesses)
+    .set({ openaiApiKeyId: parsed.data.openaiApiKeyId.trim() })
+    .where(eq(businesses.id, parsed.data.businessId));
+  await audit(admin.userId, "business.openai_key_id_set", parsed.data.businessId, { openaiApiKeyId: parsed.data.openaiApiKeyId.trim() });
+  revalidatePath(`/admin/businesses/${parsed.data.businessId}`);
+}

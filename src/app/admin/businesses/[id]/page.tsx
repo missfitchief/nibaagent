@@ -15,7 +15,8 @@ import {
 } from "@/lib/db/schema";
 import { estimateSavings } from "@/lib/plans";
 import { aiCostWindows } from "@/lib/usage";
-import { resetCostTrackingAction } from "@/lib/actions/admin";
+import { resetCostTrackingAction, setOpenaiApiKeyIdAction } from "@/lib/actions/admin";
+import { fetchRealOpenAiCost } from "@/lib/openai-costs";
 import { maskToken } from "@/lib/crypto";
 import { knowledgeSources } from "@/lib/db/schema";
 import { listProducts } from "@/lib/products";
@@ -111,6 +112,26 @@ export default async function AdminBusinessDetail({
   // AI cost broken out by window (USD — the currency providers actually bill
   // in, no FX estimate layered on top), strictly scoped to this business.
   const costWindows = await aiCostWindows(id, undefined, biz.costTrackingSince);
+  // Real spend straight from OpenAI's Costs API, when this business has its
+  // own API key id on file — cross-checked against our own estimate above.
+  // Only fetched on Overview (a live external call) and fails soft: a
+  // missing Admin key or an API error never blocks the page, it just hides
+  // the "real" figures and keeps showing our estimate.
+  const realCost =
+    tab === "overview" && biz.openaiApiKeyId
+      ? await (async () => {
+          const now = new Date();
+          const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+          const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+          const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+          const [daily, weekly, monthly] = await Promise.all([
+            fetchRealOpenAiCost(biz.openaiApiKeyId, dayAgo, now),
+            fetchRealOpenAiCost(biz.openaiApiKeyId, weekAgo, now),
+            fetchRealOpenAiCost(biz.openaiApiKeyId, monthAgo, now)
+          ]);
+          return { daily, weekly, monthly };
+        })()
+      : null;
   const [orderCount] = await d.select({ n: sql<number>`count(*)::int` }).from(orders).where(eq(orders.businessId, id));
   const [handoffOpen] = await d
     .select({ n: sql<number>`count(*)::int` })
@@ -631,6 +652,46 @@ export default async function AdminBusinessDetail({
           </button>
         </form>
       </div>
+
+      <Card>
+        <h2 className="font-semibold">Stvaran trošak (direktno sa OpenAI-ja)</h2>
+        <p className="mt-1 text-xs text-[var(--ink-soft)]">
+          Unesi OpenAI API key id ovog biznisa (npr. <code className="rounded bg-slate-100 px-1">key_abc123</code> — sam ID,
+          NE tajni ključ) da bi se ovde pokazao STVARAN trošak sa OpenAI Costs API-ja, pored naše procene iznad. Zahteva
+          Organization-level Admin ključ podešen u App settings.
+        </p>
+        <form action={setOpenaiApiKeyIdAction} className="mt-3 flex flex-wrap items-center gap-2">
+          <input type="hidden" name="businessId" value={biz.id} />
+          <input
+            name="openaiApiKeyId"
+            defaultValue={biz.openaiApiKeyId}
+            placeholder="key_…"
+            className="w-56 rounded-xl border border-[var(--card-border)] bg-white/80 px-3 py-2 text-sm outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-100"
+          />
+          <button className="rounded-lg border border-[var(--card-border)] bg-white/60 px-3 py-1.5 text-sm hover:bg-white">Sačuvaj</button>
+        </form>
+        {!biz.openaiApiKeyId && <p className="mt-2 text-xs text-[var(--ink-soft)]">Nije podešeno — prikazuje se samo naša procena.</p>}
+        {realCost && (
+          <div className="mt-3 grid grid-cols-3 gap-3">
+            {(
+              [
+                ["Danas", realCost.daily],
+                ["7 dana", realCost.weekly],
+                ["30 dana", realCost.monthly]
+              ] as const
+            ).map(([label, r]) => (
+              <div key={label} className="rounded-xl border border-[var(--card-border)] bg-white/60 p-3">
+                <div className="text-xs uppercase tracking-wider text-[var(--ink-soft)]">{label}</div>
+                {r.ok ? (
+                  <div className="mt-1 text-xl font-semibold text-emerald-700">${r.usd.toFixed(2)}</div>
+                ) : (
+                  <div className="mt-1 text-xs text-rose-600">Nedostupno: {r.error}</div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
 
       <section className="grid gap-4 lg:grid-cols-2">
         <AdminBusinessForm
