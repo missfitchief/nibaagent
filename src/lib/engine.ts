@@ -53,8 +53,8 @@ import {
  * this engine also powers the in-app test bot and draft mode.
  */
 
-/** How many recent messages go into the AI prompt (requirement: 10–20; kept at the top of that range so a returning customer's recent context survives longer). */
-export const HISTORY_LIMIT = 20;
+/** How many recent messages go into the AI prompt — raised past the original 10–20 spec at the business owner's explicit request so more of a returning customer's context survives. */
+export const HISTORY_LIMIT = 30;
 /** Human takeover silence window after a handoff trigger (Meta 24h rule). */
 const HUMAN_TAKEOVER_MS = 24 * 60 * 60 * 1000;
 /** Cap on downloaded customer photos — vision models don't need more. */
