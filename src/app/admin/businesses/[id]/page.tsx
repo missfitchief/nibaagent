@@ -16,7 +16,7 @@ import {
 import { estimateSavings } from "@/lib/plans";
 import { aiCostWindows } from "@/lib/usage";
 import { resetCostTrackingAction, setOpenaiApiKeyIdAction } from "@/lib/actions/admin";
-import { fetchRealOpenAiCost } from "@/lib/openai-costs";
+import { getRealCostWindows } from "@/lib/openai-costs";
 import { maskToken } from "@/lib/crypto";
 import { knowledgeSources } from "@/lib/db/schema";
 import { listProducts } from "@/lib/products";
@@ -114,24 +114,12 @@ export default async function AdminBusinessDetail({
   const costWindows = await aiCostWindows(id, undefined, biz.costTrackingSince);
   // Real spend straight from OpenAI's Costs API, when this business has its
   // own API key id on file — cross-checked against our own estimate above.
-  // Only fetched on Overview (a live external call) and fails soft: a
-  // missing Admin key or an API error never blocks the page, it just hides
-  // the "real" figures and keeps showing our estimate.
-  const realCost =
-    tab === "overview" && biz.openaiApiKeyId
-      ? await (async () => {
-          const now = new Date();
-          const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-          const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-          const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-          const [daily, weekly, monthly] = await Promise.all([
-            fetchRealOpenAiCost(biz.openaiApiKeyId, dayAgo, now),
-            fetchRealOpenAiCost(biz.openaiApiKeyId, weekAgo, now),
-            fetchRealOpenAiCost(biz.openaiApiKeyId, monthAgo, now)
-          ]);
-          return { daily, weekly, monthly };
-        })()
-      : null;
+  // Only fetched on Overview and cached for a few minutes (see
+  // REAL_COST_CACHE_TTL_MS) so repeated page loads don't re-hit OpenAI's
+  // rate limit. Fails soft: a missing Admin key or an API error never
+  // blocks the page, it just hides the "real" figures and keeps showing
+  // our estimate.
+  const realCost = tab === "overview" ? await getRealCostWindows(biz) : null;
   const [orderCount] = await d.select({ n: sql<number>`count(*)::int` }).from(orders).where(eq(orders.businessId, id));
   const [handoffOpen] = await d
     .select({ n: sql<number>`count(*)::int` })

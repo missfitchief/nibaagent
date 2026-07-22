@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { makeDb, type TestDb } from "./helpers";
+import { eq } from "drizzle-orm";
+import { makeDb, seedBusiness, type TestDb } from "./helpers";
+import { businesses } from "../src/lib/db/schema";
 import { setPlatform } from "../src/lib/platform";
-import { fetchRealOpenAiCost, type CostsFetch } from "../src/lib/openai-costs";
+import { fetchRealOpenAiCost, getRealCostWindows, type CostsFetch } from "../src/lib/openai-costs";
 
 /**
  * Real-spend cross-check against OpenAI's Costs API. The fetch itself is
@@ -83,5 +85,71 @@ describe("fetchRealOpenAiCost", () => {
     const r = await fetchRealOpenAiCost("key_x", new Date(0), new Date(), fetchStub);
     expect(r.ok).toBe(false);
     expect(r.error).toBe("fetch failed");
+  });
+});
+
+describe("getRealCostWindows (cached)", () => {
+  it("returns null when the business has no API key id set — no fetch attempted", async () => {
+    const { business } = await seedBusiness(db, "NoKeyIdCo");
+    const calls: number[] = [];
+    const fetchStub: CostsFetch = async () => {
+      calls.push(1);
+      return { data: [], has_more: false };
+    };
+    const r = await getRealCostWindows({ id: business.id, openaiApiKeyId: "", realCostCache: null }, new Date(), 5 * 60 * 1000, fetchStub);
+    expect(r).toBeNull();
+    expect(calls).toHaveLength(0);
+  });
+
+  it("fetches on a cold cache, writes the cache, then reuses it on the next call within the TTL — never re-fetching", async () => {
+    await setPlatform("OPENAI_ADMIN_API_KEY", "sk-admin-1");
+    const { business } = await seedBusiness(db, "CacheCo");
+    let calls = 0;
+    const fetchStub: CostsFetch = async () => {
+      calls += 1;
+      return { data: [{ results: [{ amount: { value: 1.23 } }] }], has_more: false };
+    };
+    const now = new Date();
+
+    const r1 = await getRealCostWindows({ id: business.id, openaiApiKeyId: "key_cache", realCostCache: null }, now, 5 * 60 * 1000, fetchStub);
+    expect(r1?.daily.usd).toBeCloseTo(1.23);
+    expect(calls).toBe(3); // one fetch per window (daily/weekly/monthly)
+
+    const [row] = await db.select().from(businesses).where(eq(businesses.id, business.id));
+    expect(row.realCostCache).toBeTruthy();
+
+    // A "warm" call one minute later, well inside the 5-minute TTL — reuses
+    // the cache from the DB, makes zero additional OpenAI calls.
+    const warm = await getRealCostWindows(
+      { id: business.id, openaiApiKeyId: "key_cache", realCostCache: row.realCostCache },
+      new Date(now.getTime() + 60_000),
+      5 * 60 * 1000,
+      fetchStub
+    );
+    expect(warm?.daily.usd).toBeCloseTo(1.23);
+    expect(calls).toBe(3); // unchanged — no new fetch happened
+  });
+
+  it("re-fetches once the cache is older than the TTL", async () => {
+    await setPlatform("OPENAI_ADMIN_API_KEY", "sk-admin-1");
+    const { business } = await seedBusiness(db, "StaleCacheCo");
+    let calls = 0;
+    const fetchStub: CostsFetch = async () => {
+      calls += 1;
+      return { data: [{ results: [{ amount: { value: 5 } }] }], has_more: false };
+    };
+    const now = new Date();
+    const r1 = await getRealCostWindows({ id: business.id, openaiApiKeyId: "key_stale", realCostCache: null }, now, 60_000, fetchStub);
+    expect(calls).toBe(3);
+
+    const [row] = await db.select().from(businesses).where(eq(businesses.id, business.id));
+    const r2 = await getRealCostWindows(
+      { id: business.id, openaiApiKeyId: "key_stale", realCostCache: row.realCostCache },
+      new Date(now.getTime() + 120_000), // 2 minutes later, past the 60s TTL
+      60_000,
+      fetchStub
+    );
+    expect(calls).toBe(6); // re-fetched
+    expect(r1?.daily.usd).toBe(r2?.daily.usd);
   });
 });

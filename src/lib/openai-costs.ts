@@ -1,4 +1,7 @@
 import "server-only";
+import { eq } from "drizzle-orm";
+import { db } from "./db/client";
+import { businesses } from "./db/schema";
 import { resolvePlatform } from "./platform";
 
 /**
@@ -73,4 +76,54 @@ export async function fetchRealOpenAiCost(
   } catch (err) {
     return { usd: 0, ok: false, error: (err as Error).message };
   }
+}
+
+export interface RealCostWindows {
+  daily: OpenAiCostResult;
+  weekly: OpenAiCostResult;
+  monthly: OpenAiCostResult;
+}
+
+interface RealCostCache {
+  fetchedAt: string;
+  windows: RealCostWindows;
+}
+
+/** How long a cached real-cost pull stays fresh before the next page load re-hits OpenAI. */
+export const REAL_COST_CACHE_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * Cached real-cost windows for one business — avoids re-hitting OpenAI's
+ * Costs API (30 req/min org-wide rate limit) on every Overview page load,
+ * which needs 3 calls (today/7d/30d) and hits the limit fast if the admin
+ * refreshes a few times in a row. Returns null when the business has no
+ * OpenAI API key id set (nothing to fetch). The DB write only happens on a
+ * cache miss, so a "warm" page load is a single read, no external call.
+ */
+export async function getRealCostWindows(
+  business: { id: string; openaiApiKeyId: string; realCostCache: unknown },
+  now: Date = new Date(),
+  ttlMs = REAL_COST_CACHE_TTL_MS,
+  costsFetch: CostsFetch = defaultCostsFetch
+): Promise<RealCostWindows | null> {
+  if (!business.openaiApiKeyId) return null;
+  const cache = business.realCostCache as RealCostCache | null | undefined;
+  if (cache?.fetchedAt) {
+    const age = now.getTime() - new Date(cache.fetchedAt).getTime();
+    if (age >= 0 && age < ttlMs) return cache.windows;
+  }
+  const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const [daily, weekly, monthly] = await Promise.all([
+    fetchRealOpenAiCost(business.openaiApiKeyId, dayAgo, now, costsFetch),
+    fetchRealOpenAiCost(business.openaiApiKeyId, weekAgo, now, costsFetch),
+    fetchRealOpenAiCost(business.openaiApiKeyId, monthAgo, now, costsFetch)
+  ]);
+  const windows: RealCostWindows = { daily, weekly, monthly };
+  await db()
+    .update(businesses)
+    .set({ realCostCache: { fetchedAt: now.toISOString(), windows } as unknown as Record<string, unknown> })
+    .where(eq(businesses.id, business.id));
+  return windows;
 }

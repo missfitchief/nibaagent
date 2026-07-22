@@ -98,6 +98,8 @@ export const businesses = pgTable(
     costTrackingSince: timestamp("cost_tracking_since", { withTimezone: true }),
     /** OpenAI API key ID (e.g. "key_abc123", NOT the secret itself — safe to store plain) for this business's own OpenAI key, used to pull real spend from the Costs API. Empty = not set, only our own estimate is shown. */
     openaiApiKeyId: text("openai_api_key_id").notNull().default(""),
+    /** Short-TTL cache of the last real-cost pull from OpenAI's Costs API (see lib/openai-costs.ts) — avoids re-hitting their rate limit (30 req/min) on every Overview page load, which happens easily since each load needs 3 windows. Null = never fetched. */
+    realCostCache: jsonb("real_cost_cache").$type<Record<string, unknown>>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
   },
