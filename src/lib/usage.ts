@@ -1,7 +1,7 @@
 import "server-only";
 import { and, count, eq, gte, sql } from "drizzle-orm";
 import { db } from "./db/client";
-import { messages, orders, type Plan } from "./db/schema";
+import { businesses, messages, orders, type Plan } from "./db/schema";
 import { estimateSavings, planDef } from "./plans";
 
 /**
@@ -109,4 +109,27 @@ export async function aiCostWindows(
   };
   const [daily, weekly, monthly] = await Promise.all([sumSince(dayAgo), sumSince(weekAgo), sumSince(monthAgo)]);
   return { daily, weekly, monthly };
+}
+
+/**
+ * Platform-wide 30-day AI cost (admin Control center), respecting each
+ * business's OWN cost-tracking reset point — a business that reset its
+ * tracking (e.g. after switching to its own API key) must not keep dragging
+ * its pre-reset spend into this platform-wide total, same as its own
+ * Overview tab already excludes it.
+ */
+export async function platformAiCost30d(now: Date = new Date()): Promise<number> {
+  const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const epoch = new Date(0);
+  const d = db();
+  const [row] = await d
+    .select({
+      c: sql<string>`coalesce(sum(${messages.costEstimate}) filter (
+        where ${messages.createdAt} >= ${monthAgo}
+          and ${messages.createdAt} >= coalesce(${businesses.costTrackingSince}, ${epoch})
+      ), 0)`
+    })
+    .from(messages)
+    .innerJoin(businesses, eq(messages.businessId, businesses.id));
+  return Number(row?.c ?? 0);
 }

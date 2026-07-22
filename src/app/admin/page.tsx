@@ -4,6 +4,7 @@ import { requireAdmin } from "@/lib/auth/guards";
 import { db } from "@/lib/db/client";
 import { businesses, eventLogs, messages, metaConnections } from "@/lib/db/schema";
 import { resolveAllErrorLogsAction } from "@/lib/actions/logs";
+import { platformAiCost30d } from "@/lib/usage";
 import { Badge, Card, Stat } from "@/components/ui";
 
 export default async function AdminOverview() {
@@ -31,9 +32,11 @@ export default async function AdminOverview() {
     .from(eventLogs)
     .where(and(eq(eventLogs.level, "error"), isNull(eventLogs.resolvedAt)));
 
-  const [cost30d] = await d
-    .select({ c: sql<string>`coalesce(sum(${messages.costEstimate}) filter (where ${messages.createdAt} >= now() - interval '30 days'), 0)` })
-    .from(messages);
+  // Platform-wide 30-day cost, respecting each business's OWN cost-tracking
+  // reset point (see businesses.costTrackingSince) — a business that reset
+  // its tracking (e.g. after switching to its own API key) must not keep
+  // dragging its pre-reset spend into this platform-wide total.
+  const cost30dUsd = await platformAiCost30d();
 
   const latest = await d.select().from(businesses).orderBy(desc(businesses.createdAt)).limit(8);
   const needsAttention = brokenConnections.length > 0 || (unresolvedErrors?.n ?? 0) > 0;
@@ -59,7 +62,7 @@ export default async function AdminOverview() {
           hint={`of ${connStats?.total ?? 0} connected`}
         />
         <Stat label="Unresolved errors" value={unresolvedErrors?.n ?? 0} tone={unresolvedErrors?.n ? "warn" : "ok"} />
-        <Stat label="AI cost — 30 days" value={`$${Number(cost30d?.c ?? 0).toFixed(2)}`} />
+        <Stat label="AI cost — 30 days" value={`$${cost30dUsd.toFixed(2)}`} />
       </section>
 
       {needsAttention ? (

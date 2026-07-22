@@ -10,7 +10,7 @@ import {
   resolveTelegram
 } from "../src/lib/secrets";
 import { resetEnvCache } from "../src/lib/env";
-import { aiCostWindows } from "../src/lib/usage";
+import { aiCostWindows, platformAiCost30d } from "../src/lib/usage";
 
 /**
  * Multi-tenant isolation proofs required by the SaaS spec. Two businesses (A, B)
@@ -118,6 +118,44 @@ describe("tenant isolation", () => {
 
     const afterReset = await aiCostWindows(C.business.id, now, resetPoint);
     expect(afterReset.monthly).toBeCloseTo(1.5); // only the post-reset message counts
+  });
+
+  it("platform-wide 30-day cost also respects a per-business reset (was a separate, unfixed query)", async () => {
+    // Regression: the Control center's platform-wide total summed ALL
+    // messages regardless of costTrackingSince, so a business's reset
+    // (proven correct on its own Overview tab above) still leaked its
+    // stale pre-reset spend into the platform-wide figure.
+    const D = await seedBusiness(db, "PlatformResetCo");
+    const [convo] = await db.insert(schema.conversations).values({ businessId: D.business.id, channel: "instagram", senderId: "plat-reset-cust" }).returning();
+    const now = new Date();
+    const before = new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000);
+    const resetPoint = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000);
+    const after = new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000);
+    await db.insert(schema.messages).values({
+      businessId: D.business.id,
+      conversationId: convo.id,
+      channel: "instagram",
+      direction: "outbound",
+      aiGenerated: true,
+      costEstimate: "40.000000",
+      createdAt: before
+    });
+    await db.insert(schema.messages).values({
+      businessId: D.business.id,
+      conversationId: convo.id,
+      channel: "instagram",
+      direction: "outbound",
+      aiGenerated: true,
+      costEstimate: "2.500000",
+      createdAt: after
+    });
+
+    const totalBeforeReset = await platformAiCost30d(now);
+    expect(totalBeforeReset).toBeGreaterThanOrEqual(42.5); // both D messages counted (plus whatever earlier tests left behind)
+
+    await db.update(schema.businesses).set({ costTrackingSince: resetPoint }).where(eq(schema.businesses.id, D.business.id));
+    const totalAfterReset = await platformAiCost30d(now);
+    expect(totalAfterReset).toBeCloseTo(totalBeforeReset - 40, 5); // the pre-reset 40 drops out, the post-reset 2.5 stays
   });
 
   it("a business owner is not the owner of another business (guard precondition)", async () => {
