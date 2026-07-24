@@ -79,6 +79,30 @@ describe("engine honors per-business settings", () => {
     expect(heavy.intent).not.toBe("faq"); // ai_heavy bypasses the FAQ shortcut
   });
 
+  it("FAQ matching ignores generic question/price words shared across unrelated questions", async () => {
+    // Regression for a real prod bug: a customer asked "Koja je cijena
+    // medaljona?" (price of the MEDALLION) and got "Cijena dostave je 10 KM"
+    // (delivery price) — completely wrong topic. The FAQ "Koja je cijena
+    // dostave?" only has 3 matchable words (koja/cijena/dostave); "koja" and
+    // "cijena" are generic enough to appear in almost any price question, so
+    // 2 of 3 matched even though "dostave" — the one word that actually
+    // identifies the topic — never appeared in the customer's message.
+    // Fresh business so this doesn't collide with the FAQ seeded above.
+    const s = await seedBusiness(db, "FaqTopicCo");
+    const faqBiz = s.business.id;
+    await db.update(schema.businesses).set({ aiMode: "live", defaultLanguage: "sr" }).where(eq(schema.businesses.id, faqBiz));
+    await db.insert(schema.knowledgeSources).values({ businessId: faqBiz, type: "faq", title: "Koja je cijena dostave?", content: "Cijena dostave je 10 KM", status: "active" });
+
+    const wrong = await runEngine(faqBiz, "Postovani, koja je cijena medaljona? hvala");
+    expect(wrong.intent).not.toBe("faq");
+    expect(wrong.reply).not.toContain("dostave");
+
+    // The FAQ must still fire for messages that actually ARE about delivery.
+    const right = await runEngine(faqBiz, "koja je cijena dostave?");
+    expect(right.intent).toBe("faq");
+    expect(right.reply).toBe("Cijena dostave je 10 KM");
+  });
+
   it("image sent while recognition disabled → asks for text description", async () => {
     await setBot({ aiStrategy: "rules_first", imageRecognitionEnabled: false });
     const r = await runEngine(biz, "", { hasImage: true });

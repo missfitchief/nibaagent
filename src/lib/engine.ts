@@ -205,11 +205,29 @@ export function detectHandoff(message: string, words: string[]): string | null {
   return null;
 }
 
+// Generic question-frame/price words that appear in MANY different FAQ
+// questions ("Koja je cijena X?" for any X) and so carry no real topic
+// signal — without filtering these out, a question about a completely
+// different topic can still score high just by sharing "koja"/"cijena"
+// with an unrelated FAQ (real prod bug: "Koja je cijena medaljona?" matched
+// the "Koja je cijena dostave?" FAQ — 2 of its 3 words overlapped, scoring
+// above threshold, while the one word that actually mattered — "dostave" —
+// was never checked against).
+const FAQ_STOPWORDS = new Set([
+  "koja", "koji", "koje", "kome", "cega",
+  "cena", "cene", "cenu", "cijena", "cijene", "cijenu",
+  "kolika", "koliko", "kolik",
+  "kada", "gdje", "sta", "kako", "zasto",
+  "dali", "imate", "imam", "mogu", "mozete", "treba"
+]);
+
 export function matchFaq(message: string, faqs: Array<{ q: string; a: string }>): { q: string; a: string } | null {
   const n = norm(message);
   let best: { q: string; a: string; score: number } | null = null;
   for (const f of faqs) {
-    const words = norm(f.q).split(/\W+/).filter((w) => w.length > 3);
+    const words = norm(f.q)
+      .split(/\W+/)
+      .filter((w) => w.length > 3 && !FAQ_STOPWORDS.has(w));
     if (!words.length) continue;
     const hits = words.filter((w) => n.includes(w)).length;
     const score = hits / words.length;

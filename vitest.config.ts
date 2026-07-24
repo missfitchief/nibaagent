@@ -16,6 +16,12 @@ export default defineConfig({
     include: ["test/**/*.test.ts"],
     environment: "node",
     testTimeout: 30000,
+    // Vitest's hookTimeout defaults to 10s independently of testTimeout — a
+    // beforeAll that seeds a lot (makeDb() + migrations + fixtures) can trip
+    // that under real machine load even though the actual test body would
+    // comfortably fit in testTimeout. Match the two so a slow machine fails
+    // loudly with a real assertion, not a hook-timeout red herring.
+    hookTimeout: 30000,
     fileParallelism: false
   }
 });
