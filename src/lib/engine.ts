@@ -242,9 +242,22 @@ function sr(formal: boolean, viForm: string, tiForm: string): string {
   return formal ? viForm : tiForm;
 }
 
-function orderCollectionReply(lang: string, formal: boolean, extraPrompt = ""): string {
-  const base =
-    lang === "en"
+/**
+ * sawProductInImage: the customer just sent a photo that WAS analyzed this
+ * turn (see 0d above) — asking "and what would you like to order" in that
+ * case reads as if the bot never looked at the picture. Drop that clause and
+ * acknowledge the photo instead; still ask for the actual missing fields.
+ */
+function orderCollectionReply(lang: string, formal: boolean, extraPrompt = "", sawProductInImage = false): string {
+  const base = sawProductInImage
+    ? lang === "en"
+      ? EN("Great, I see the item from your photo! To place your order please send: full name, street and number, city, postal code, and phone number.")
+      : sr(
+          formal,
+          "Super, vidim artikal sa slike! Za porudžbinu nam pošaljite: ime i prezime, ulicu i broj, grad, poštanski broj i broj telefona.",
+          "Super, vidim artikal sa slike! Za porudžbinu nam pošalji: ime i prezime, ulicu i broj, grad, poštanski broj i broj telefona."
+        )
+    : lang === "en"
       ? EN("Great! To place your order please send: full name, street and number, city, postal code, phone number, and what you would like to order.")
       : sr(
           formal,
@@ -488,6 +501,12 @@ export async function runEngine(businessId: string, message: string, opts: Engin
   // folding the description into the query so downstream matches stay scoped
   // to this tenant's catalog/knowledge.
   let imageDataUrl: string | undefined;
+  // Carried into the order-collection prompt below so it never asks "what
+  // would you like to order" when a photo of the item just arrived, and into
+  // order.productText so the saved order doesn't end up blank on what she
+  // wants just because it was only ever shown, never typed.
+  let sawProductInImage = false;
+  let imageDescriptionText = "";
   if (opts.imageUrl && settings?.imageRecognitionEnabled) {
     const visionModel =
       sanitizeModel((await resolvePlatform("DEFAULT_VISION_MODEL")).value) ||
@@ -510,6 +529,8 @@ export async function runEngine(businessId: string, message: string, opts: Engin
       : null;
     if (desc) {
       message = `${message ? message + " " : ""}[Slika prikazuje: ${desc}]`.trim();
+      sawProductInImage = true;
+      imageDescriptionText = desc;
     } else if (imageDataUrl) {
       await logEvent(businessId, "warn", "ai_reply", "Slika nije mogla biti analizirana — nastavljam bez prepoznavanja slike");
     }
@@ -581,6 +602,9 @@ export async function runEngine(businessId: string, message: string, opts: Engin
     const order: OrderData = startFresh
       ? { ...mergeOrderData(extracted, loose), active: true }
       : mergeOrderData(prevOrder, extracted, loose, intentNow ? { active: true } : {});
+    // A photo IS the product declaration — don't leave "what she's ordering"
+    // blank on the saved order just because it was shown, never typed.
+    if (sawProductInImage && !order.productText) order.productText = imageDescriptionText;
 
     // Did THIS message carry anything order-relevant?
     const extractedNow = mergeOrderData(extractOrderFields(message), loose);
@@ -597,7 +621,7 @@ export async function runEngine(businessId: string, message: string, opts: Engin
       let reply: string;
       if (!order.customerName && !order.phone && !order.streetAndNumber && !order.city && !order.postalCode) {
         // Nothing known yet → the classic full collection prompt.
-        reply = orderCollectionReply(lang, formal, settings?.orderPrompt ?? "");
+        reply = orderCollectionReply(lang, formal, settings?.orderPrompt ?? "", sawProductInImage);
       } else {
         const missing = missingOrderFields(order);
         if (missing.length > 0) {
@@ -683,7 +707,7 @@ export async function runEngine(businessId: string, message: string, opts: Engin
     }
   } else if (orderWanted && !convo && detectOrderIntent(message)) {
     // Legacy stateless path (no sender identified): original one-shot prompt.
-    return withSend({ ...base, intent: "order", orderTriggered: true, reply: orderCollectionReply(lang, formal, settings?.orderPrompt ?? "") });
+    return withSend({ ...base, intent: "order", orderTriggered: true, reply: orderCollectionReply(lang, formal, settings?.orderPrompt ?? "", sawProductInImage) });
   }
 
   // 4. grounded AI. Gather product/knowledge/faq context first.

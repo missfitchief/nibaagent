@@ -470,6 +470,44 @@ describe("meta webhook processor", () => {
       }
     });
 
+    it("order collection: a photo + order intent never asks 'what would you like to order' — it already saw it", async () => {
+      // Real prod bug: a customer sent a photo of a bracelet along with an
+      // order-intent message. The bot correctly ran vision on the photo, but
+      // the FIRST-CONTACT collection prompt is a static template that always
+      // ends in "...and what you'd like to order" — completely ignoring that
+      // the photo IS the answer to that. Reads as if the bot never looked.
+      const realFetch = globalThis.fetch;
+      globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+        if (String(url).includes("api.openai.com")) {
+          const body = JSON.parse(String(init?.body ?? "{}"));
+          const isVision = Array.isArray(body.messages?.[0]?.content);
+          return new Response(JSON.stringify({ choices: [{ message: { content: isVision ? "narukvica, srebrne boje" : "ok" } }], usage: { total_tokens: 10 } }), {
+            status: 200,
+            headers: { "content-type": "application/json" }
+          });
+        }
+        return new Response(new Uint8Array([1, 2, 3, 4]), { status: 200, headers: { "content-type": "image/jpeg" } });
+      }) as typeof fetch;
+      try {
+        // A photo WITH an order-intent caption in the same message — the
+        // realistic, common case ("Zelim da naručim" + attached photo).
+        const r2 = await processMetaWebhook(
+          { object: "page", entry: [{ id: PAGE1, time: 2000, messaging: [{ sender: { id: "cust-img-order-2" }, recipient: { id: PAGE1 }, timestamp: 2000, message: { mid: "img-order-2", text: "Zelim da naručim", attachments: [{ type: "image", payload: { url: "https://cdn.meta/narukvica2.jpg" } }] } }] }] },
+          fastDeps
+        );
+        expect(r2.replied).toBe(1);
+        const reply = sent[sent.length - 1].text;
+        expect(reply).not.toMatch(/šta (želite|želiš) da poruč/i);
+        expect(reply).toMatch(/vidim/i);
+
+        const convo = (await db.select().from(schema.conversations).where(eq(schema.conversations.businessId, biz1))).find((c) => c.senderId === "cust-img-order-2");
+        const state = convo?.conversationState as { order?: { productText?: string } } | undefined;
+        expect(state?.order?.productText).toBe("narukvica, srebrne boje");
+      } finally {
+        globalThis.fetch = realFetch;
+      }
+    });
+
     it("vision prompt asks for an exact catalog jewelry-type word first", async () => {
       // Regression for a real prod bug: a vague vision description ("srebrni
       // privezak sa fotografijom") never token-matched the catalog title
