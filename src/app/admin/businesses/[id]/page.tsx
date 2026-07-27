@@ -670,10 +670,10 @@ export default async function AdminBusinessDetail({
             ).map(([label, r]) => (
               <div key={label} className="rounded-xl border border-[var(--card-border)] bg-white/60 p-3">
                 <div className="text-xs uppercase tracking-wider text-[var(--ink-soft)]">{label}</div>
-                {r.ok ? (
+                {r.ok && typeof r.usd === "number" ? (
                   <div className="mt-1 text-xl font-semibold text-emerald-700">${r.usd.toFixed(2)}</div>
                 ) : (
-                  <div className="mt-1 text-xs text-rose-600">Nedostupno: {r.error}</div>
+                  <div className="mt-1 text-xs text-rose-600">Nedostupno{r.error ? `: ${r.error}` : ""}</div>
                 )}
               </div>
             ))}

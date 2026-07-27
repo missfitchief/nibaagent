@@ -86,6 +86,23 @@ describe("fetchRealOpenAiCost", () => {
     expect(r.ok).toBe(false);
     expect(r.error).toBe("fetch failed");
   });
+
+  it("fails soft instead of returning NaN when a bucket's amount isn't a usable number", async () => {
+    // Real prod bug: a malformed/unexpected amount value made `total` end up
+    // NaN. That NaN got serialized into the jsonb cache column as `null`
+    // (JSON has no NaN), and a later "warm" cache read then crashed the
+    // admin page's `r.usd.toFixed(2)` on that null — a 500 on the whole
+    // business detail page. ok must be false, never a non-finite usd.
+    await setPlatform("OPENAI_ADMIN_API_KEY", "sk-admin-1");
+    const fetchStub: CostsFetch = async () =>
+      ({
+        data: [{ results: [{ amount: { value: "not-a-number" as unknown as number } }] }],
+        has_more: false
+      }) as Awaited<ReturnType<CostsFetch>>;
+    const r = await fetchRealOpenAiCost("key_x", new Date(0), new Date(), fetchStub);
+    expect(r.ok).toBe(false);
+    expect(Number.isFinite(r.usd)).toBe(true);
+  });
 });
 
 describe("getRealCostWindows (cached)", () => {

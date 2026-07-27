@@ -72,6 +72,12 @@ export async function fetchRealOpenAiCost(
       if (!body.has_more || !body.next_page) break;
       page = body.next_page;
     }
+    // A malformed/unexpected bucket shape (a non-numeric amount.value, e.g.)
+    // can leave `total` as NaN — jsonb serialization silently turns NaN into
+    // null on the round trip through the DB cache, which then crashed the
+    // admin page's `.toFixed()` call on a later "warm" read. Fail soft here
+    // instead of ever persisting a non-finite number.
+    if (!Number.isFinite(total)) return { usd: 0, ok: false, error: "unexpected cost data shape from OpenAI" };
     return { usd: Math.round(total * 1_000_000) / 1_000_000, ok: true };
   } catch (err) {
     return { usd: 0, ok: false, error: (err as Error).message };
