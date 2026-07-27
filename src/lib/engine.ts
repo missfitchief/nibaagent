@@ -791,7 +791,12 @@ export async function runEngine(businessId: string, message: string, opts: Engin
   }
 
   const topProducts = confidentProduct ? productMatches.slice(0, 6) : [];
-  const askedVariant = /\b(velicin|velicina|broj|size|boj[aeu]|boje|color|colou?r)\b/i.test(norm(message));
+  // Stem match, not exact-word: Serbian nouns inflect by case ("u srebrnoj
+  // boji" = locative "boji", not "boja"/"boje") — real prod bug where a
+  // customer asking about color availability never triggered variant lookup
+  // because "boji" matched none of the old exact-word alternatives, so the
+  // AI had no stock data and hedged with "we'll check" instead of answering.
+  const askedVariant = /\b(velicin\w*|broj\w*|size\w*|boj\w*|colou?r\w*)\b/i.test(norm(message));
   const variants = askedVariant && topProducts.length ? await variantsFor(businessId, topProducts.map((m) => m.product.id)) : new Map();
   const productData = topProducts.map((m) => `- ${productFacts(m.product)}${variantFacts(variants.get(m.product.id) ?? [])}`).join("\n");
 
@@ -884,7 +889,7 @@ export async function runEngine(businessId: string, message: string, opts: Engin
   const visionCapable = provider === "openai" && /^(gpt-4o|gpt-4\.1|gpt-5|o[134])/i.test(model);
   const imageForModel = imageDataUrl && visionCapable ? imageDataUrl : undefined;
   const systemFinal = imageForModel
-    ? `${system}\n\nA customer photo is attached to the last message — trust what YOU see in it (colors, model, design) over any text description of it.`
+    ? `${system}\n\nA customer photo is attached to the last message — trust what YOU see in it (colors, model, design) over any text description of it. If a person (hand, face, body) appears in the photo, that is incidental — the customer is showing you the PRODUCT, not asking you to identify or describe anyone. Never comment on being unable to see/identify a person; just acknowledge the item shown and continue helping with the order.`
     : system;
   const callAi = (key: string) =>
     opts.chatCompletion
