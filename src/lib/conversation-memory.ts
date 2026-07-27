@@ -232,7 +232,11 @@ export async function markHumanTakeover(businessId: string, conversationId: stri
 
 /* ── Order field extraction (deterministic, no AI call) ─────────────────── */
 
-const PHONE_RE = /(\+?\d[\d\s./()-]{4,}\d)/g;
+// Intra-line whitespace only (space/tab), NOT \s — \s also matches newlines,
+// which used to bridge a postal-code line into the very next line's phone
+// number in a multi-line address paste ("78000\n066-437-898" read as one
+// digit run, "78000066437898") instead of stopping at the line break.
+const PHONE_RE = /(\+?\d[\d \t./()-]{4,}\d)/g;
 const POSTAL_RE = /\b(\d{5})\b/;
 const NAME_RE = /(?:ime(?:\s+i\s+prezime)?\s*(?:je|:)?|zovem\s+se|ja\s+sam|my\s+name\s+is)\s+([A-ZČĆŽŠĐ][a-zčćžšđ]{1,20}(?:\s+[A-ZČĆŽŠĐ][a-zčćžšđ]{1,20}){0,2})/iu;
 const CITY_RE = /(?:grad\s*(?:je|:)?|iz|from)\s+([A-ZČĆŽŠĐ][a-zčćžšđ]{2,}(?:\s+[A-ZČĆŽŠĐa-zčćžšđ][a-zčćžšđ]{2,})?)/iu;

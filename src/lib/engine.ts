@@ -161,6 +161,46 @@ function looseOrderFields(message: string, known: OrderData): Partial<OrderData>
     }
   }
 
+  // Multi-line address paste: one field per line, no labels — "Ime Prezime /
+  // Ulica 12. / Grad / 78000 / broj telefona" is a very common real-world
+  // shape (customers copy it from a saved shipping label) that the
+  // single-line heuristics below never see, since they look at the message
+  // as ONE string capped at 60 chars. Real prod bug: a customer pasted
+  // exactly this, phone+postal got picked up by the label-free strict
+  // regexes above, but name/street/city were never even attempted — the bot
+  // kept re-asking for all three, three times in a row, despite having them.
+  const lines = t
+    .split(/\r?\n/)
+    .map((l) => l.trim().replace(/\.+$/, ""))
+    .filter(Boolean);
+  if (lines.length > 1) {
+    const merged: OrderData = { ...known, ...out };
+    let streetIdx = -1;
+    if (!merged.streetAndNumber) {
+      streetIdx = lines.findIndex((l) => /^[A-Za-zčćžšđČĆŽŠĐ][A-Za-zčćžšđČĆŽŠĐ .'/-]{1,34}?\d+[a-zA-Z]?$/u.test(l) && l.replace(/\D/g, "").length <= 4);
+      if (streetIdx >= 0) {
+        out.streetAndNumber = lines[streetIdx];
+        merged.streetAndNumber = lines[streetIdx];
+      }
+    }
+    const isBareWords = (l: string) => /^[A-ZČĆŽŠĐ][a-zčćžšđ]{1,20}(?:\s+[A-ZČĆŽŠĐ][a-zčćžšđ]{1,20}){0,2}$/u.test(l) && !NON_CITY_WORDS.has(norm(l));
+    // The city conventionally follows the street line directly.
+    if (!merged.city && streetIdx >= 0 && lines[streetIdx + 1] && isBareWords(lines[streetIdx + 1])) {
+      out.city = lines[streetIdx + 1];
+    }
+    if (!merged.customerName) {
+      // The full name is conventionally signed on its own line — the LAST
+      // 2-3-word capitalized line (that isn't the city just claimed above)
+      // wins, since a lone first name earlier in the block ("Matej") is too
+      // ambiguous to trust as the customer's own name.
+      const nameLine = [...lines]
+        .reverse()
+        .find((l) => l !== out.city && /^[A-ZČĆŽŠĐ][a-zčćžšđ]{1,20}(?:\s+[A-ZČĆŽŠĐ][a-zčćžšđ]{1,20}){1,2}$/u.test(l));
+      if (nameLine) out.customerName = nameLine;
+    }
+    return out;
+  }
+
   if (t.length > 60) return out;
   const digits = t.replace(/\D/g, "");
   const hasLetters = /[A-Za-zčćžšđČĆŽŠĐ]/u.test(t);

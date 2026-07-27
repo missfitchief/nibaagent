@@ -326,6 +326,48 @@ describe("meta webhook processor", () => {
       }
     });
 
+    it("multi-line address paste (name/street/city/postal/phone each on its own line, no labels) is parsed in one shot — never re-asked", async () => {
+      // Real prod bug, seen live: a customer pasted a saved shipping-label
+      // block —
+      //   Matej
+      //   17.11.2025.
+      //   Skendera Kulenovića 14.
+      //   Banja Luka
+      //   78000
+      //   066-437-898
+      //   Vedran Josipović
+      // — and the bot kept re-asking for "ime i prezime, ulicu i broj, grad"
+      // three times in a row, verbatim identical each time. Both the strict
+      // labeled extractor (requires "ime:"/"ulica:"/"grad:") and the loose
+      // bare-value heuristics (single string, capped at 60 chars) only ever
+      // looked at the message as ONE string — never line by line — so name/
+      // street/city were never even attempted no matter how many times the
+      // same block was resent.
+      const sender = "cust-order-multiline";
+      await processMetaWebhook(messengerPayload(PAGE1, sender, "ml-1", "Zelim da narucim narukvicu"), fastDeps);
+      sent = [];
+      const r = await processMetaWebhook(
+        messengerPayload(PAGE1, sender, "ml-2", "Matej\n17.11.2025.\nSkendera Kulenovića 14.\nBanja Luka\n78000\n066-437-898\nVedran Josipović"),
+        fastDeps
+      );
+      expect(r.replied).toBe(1);
+      expect(sent[0].text).not.toMatch(/još mi treba/i);
+      expect(sent[0].text).toMatch(/Hvala, Vedran Josipović/);
+
+      const orderRows = await db
+        .select()
+        .from(schema.orders)
+        .where(and(eq(schema.orders.businessId, biz1), eq(schema.orders.customerName, "Vedran Josipović")));
+      expect(orderRows).toHaveLength(1);
+      expect(orderRows[0]).toMatchObject({
+        customerName: "Vedran Josipović",
+        streetAndNumber: "Skendera Kulenovića 14",
+        city: "Banja Luka",
+        postalCode: "78000"
+      });
+      expect(orderRows[0].phone.replace(/\D/g, "")).toBe("066437898");
+    });
+
     it("sheet failure does NOT break the order — error recorded, reply still sent", async () => {
       const sender = "cust-order-fail";
       await db.update(schema.businesses).set({ googleSheetUrl: "https://script.google.com/fail" }).where(eq(schema.businesses.id, biz1));
