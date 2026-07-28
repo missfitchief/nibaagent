@@ -68,13 +68,15 @@ const GROUPS: IdeaGroup[] = [
 
 export function KnowledgeIdeas() {
   return (
-    <Card>
-      <details>
-        <summary className="cursor-pointer list-none">
-          <span className="inline-flex items-center gap-2 font-semibold">
-            <span aria-hidden>💡</span> Ideas: what's worth adding
+    <Card className="border-sky-200 bg-sky-50/40">
+      <details open className="group">
+        <summary className="flex cursor-pointer list-none items-center justify-between">
+          <span className="inline-flex items-center gap-2 text-base font-semibold">
+            <span aria-hidden>💡</span> Ideas: what's worth adding to your agent's knowledge
           </span>
-          <span className="ml-1 text-sm text-[var(--ink-soft)]">— click to expand</span>
+          <span aria-hidden className="text-[var(--ink-soft)] transition-transform group-open:rotate-180">
+            ▾
+          </span>
         </summary>
 
         <div className="mt-4 space-y-4">
