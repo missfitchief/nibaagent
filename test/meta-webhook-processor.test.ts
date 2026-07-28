@@ -655,6 +655,63 @@ describe("meta webhook processor", () => {
       }
     });
 
+    it("photo lookback stops once the bot already replied about it — a later 'Hvala' doesn't re-attach the stale image", async () => {
+      // Real prod bug: a customer sent a screenshot of a bounced email +
+      // "Adresa nije pronađena". The bot replied about the email problem —
+      // fine so far. But her NEXT two messages ("Sve u redu. Pokušaću." and
+      // "Hvala") had nothing to do with that screenshot, and the bot answered
+      // with essentially the SAME "email problem" reply again, because the
+      // 5-minute image lookback (added for "photo, then a separate quick
+      // caption") kept re-attaching that same stale image to every message
+      // in the window, regardless of whether the bot had already answered it.
+      const sender = "cust-stale-image";
+      let visionCalls = 0;
+      const deps = {
+        sleep: () => Promise.resolve(),
+        sendText: sendSpy,
+        debounceMs: 0,
+        engineOptions: {
+          describeImage: async () => {
+            visionCalls += 1;
+            return "screenshot: DNS greška, email adresa nije pronađena";
+          },
+          chatCompletion: async () => ({ text: "Imamo problem s email adresom, pokušajte kasnije.", tokens: 10 })
+        }
+      };
+
+      // Turn 1: photo + caption in ONE message (image attachment + text together).
+      const r1 = await processMetaWebhook(
+        {
+          object: "page",
+          entry: [
+            {
+              id: PAGE1,
+              time: 3000,
+              messaging: [
+                {
+                  sender: { id: sender },
+                  recipient: { id: PAGE1 },
+                  timestamp: 3000,
+                  message: { mid: "stale-img-1", text: "Adresa nije pronađena", attachments: [{ type: "image", payload: { url: "https://cdn.meta/bounce.jpg" } }] }
+                }
+              ]
+            }
+          ]
+        },
+        deps
+      );
+      expect(r1.replied).toBe(1);
+      expect(visionCalls).toBe(1);
+
+      // Turn 2: an unrelated acknowledgement, its own separate webhook call,
+      // well within the 5-minute lookback window but AFTER the bot's reply.
+      const r2 = await processMetaWebhook(messengerPayload(PAGE1, sender, "stale-img-2", "Hvala", 3001), deps);
+      expect(r2.replied).toBe(1);
+      // No new vision call — the stale image must not be re-attached now
+      // that the bot has already answered about it once.
+      expect(visionCalls).toBe(1);
+    });
+
     it("image download fails (Meta CDN unreachable): never crashes into the silent apology", async () => {
       const realFetch = globalThis.fetch;
       globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {

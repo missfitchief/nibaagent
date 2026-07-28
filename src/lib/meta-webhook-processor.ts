@@ -211,7 +211,7 @@ async function processOne(ev: ParsedInbound, deps: ProcessorDeps): Promise<boole
   if (!imageUrl) {
     const recentImageCutoff = new Date(mine.createdAt.getTime() - 5 * 60 * 1000);
     const [recentImage] = await d
-      .select({ imageUrl: messages.imageUrl })
+      .select({ imageUrl: messages.imageUrl, createdAt: messages.createdAt })
       .from(messages)
       .where(
         and(
@@ -224,7 +224,20 @@ async function processOne(ev: ParsedInbound, deps: ProcessorDeps): Promise<boole
       )
       .orderBy(desc(messages.createdAt))
       .limit(1);
-    if (recentImage?.imageUrl) imageUrl = recentImage.imageUrl;
+    if (recentImage?.imageUrl) {
+      // Only carry the photo forward until the bot's FIRST reply after it —
+      // real prod bug: once the bot had already answered about a photo, every
+      // later message in the same 5-minute window (a plain "Hvala", "Sve u
+      // redu, pokušaću.") kept re-attaching that SAME stale image, so vision
+      // re-described it and the bot repeated the same answer verbatim instead
+      // of responding to what the customer actually just said.
+      const [answeredSince] = await d
+        .select({ id: messages.id })
+        .from(messages)
+        .where(and(eq(messages.conversationId, convo.id), eq(messages.direction, "outbound"), gt(messages.createdAt, recentImage.createdAt)))
+        .limit(1);
+      if (!answeredSince) imageUrl = recentImage.imageUrl;
+    }
   }
 
   // 5. engine (conversation memory + rules + AI). AI/key failures throw here —
