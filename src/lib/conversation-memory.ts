@@ -48,6 +48,10 @@ export interface ConversationState {
   lastIntent?: string;
   /** Product titles discussed recently — keeps "a taj prsten?" coherent. */
   productContext?: string[];
+  /** Same products' ids, parallel to productContext — lets a follow-up with
+   *  no product name in it ("jel imate srebreni?") re-fetch full facts/variants
+   *  instead of falling back to a bare title-only note the AI can't ground on. */
+  productContextIds?: string[];
   order?: OrderData;
 }
 
@@ -185,6 +189,7 @@ export function parseConversationState(raw: unknown): ConversationState {
   return {
     lastIntent: typeof r.lastIntent === "string" ? r.lastIntent : undefined,
     productContext: Array.isArray(r.productContext) ? (r.productContext as string[]).slice(0, 10) : undefined,
+    productContextIds: Array.isArray(r.productContextIds) ? (r.productContextIds as string[]).slice(0, 10) : undefined,
     order
   };
 }

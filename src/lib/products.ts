@@ -87,6 +87,15 @@ export async function matchProducts(businessId: string, message: string): Promis
   return scored.sort((a, b) => b.score - a.score);
 }
 
+/** Look up specific products by id, business-scoped — order not guaranteed to match input. */
+export async function productsByIds(businessId: string, ids: string[]): Promise<ProductRow[]> {
+  if (!ids.length) return [];
+  return db()
+    .select()
+    .from(products)
+    .where(and(eq(products.businessId, businessId), inArray(products.id, ids)));
+}
+
 /** Compact, grounded product facts for the AI prompt / fact composer. */
 export function productFacts(p: ProductRow): string {
   const price = p.price != null ? `${p.price} ${p.currency}` : "price not listed";

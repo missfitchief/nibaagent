@@ -48,6 +48,45 @@ describe("variant/color grounding", () => {
   });
 });
 
+describe("follow-up product grounding (no product name in the message)", () => {
+  it("'Jel imate srebreni' after the item was already discussed still grounds on it, not a generic hedge", async () => {
+    const { business } = await seedBusiness(db, "Nakit shop 2");
+    await db.update(schema.businesses).set({ aiMode: "live", defaultLanguage: "sr" }).where(eq(schema.businesses.id, business.id));
+    const conversationKey = { channel: "facebook" as const, senderId: "cust-followup" };
+    const [product] = await db
+      .insert(schema.products)
+      .values({ businessId: business.id, title: "Medaljon sa slikom", price: "38.90", currency: "KM", stockStatus: "available" })
+      .returning({ id: schema.products.id });
+    await db.insert(schema.productVariants).values([
+      { businessId: business.id, productId: product.id, name: "Srebrni", color: "srebrna", stockStatus: "available" },
+      { businessId: business.id, productId: product.id, name: "Zlatni", color: "zlatna", stockStatus: "unavailable" }
+    ]);
+
+    // Turn 1: the customer names the product — establishes productContext.
+    await runEngine(business.id, "Koliko kosta medaljon sa slikom?", {
+      conversation: conversationKey,
+      chatCompletion: async () => ({ text: "Cena je 38.90 KM.", tokens: 10 })
+    });
+
+    // Turn 2: a color question that never repeats the product name — this is
+    // the exact real prod message ("Jel imate srebreni") that used to reach
+    // the AI with an empty productData block and trigger the system prompt's
+    // own "say the team will check" fallback instead of answering from data.
+    let systemSeen = "";
+    await runEngine(business.id, "Jel imate srebreni", {
+      conversation: conversationKey,
+      chatCompletion: async (input) => {
+        systemSeen = input.system;
+        return { text: "Da, srebrna boja je dostupna.", tokens: 10 };
+      }
+    });
+    expect(systemSeen).toContain("PRODUCTS");
+    expect(systemSeen).toContain("Medaljon sa slikom");
+    expect(systemSeen).toContain("variants:");
+    expect(systemSeen).toContain("srebrna");
+  });
+});
+
 describe("vision-attached prompt", () => {
   it("tells the model to ignore any person in the photo and focus on the product", async () => {
     const { business } = await seedBusiness(db, "Nakit shop");

@@ -4,7 +4,7 @@ import { db } from "./db/client";
 import { botSettings, businesses, conversations, handoffs, knowledgeSources, metaConnections, orders } from "./db/schema";
 import { estimateCostUsd } from "./plans";
 import { resolveOpenAiKey, resolveAnthropicKey } from "./secrets";
-import { matchProducts, productFacts, variantFacts, variantsFor } from "./products";
+import { matchProducts, productFacts, productsByIds, variantFacts, variantsFor } from "./products";
 import { pickModel, sanitizeModel, APP_DEFAULT_MODEL, APP_DEFAULT_VISION_MODEL, type Provider } from "./models";
 import { callOpenAiChat, isReasoningModel, resolveProviderRuntimeConfig, sanitizeAiError, type OpenAiMessage } from "./ai-runtime";
 import { buildSheetPayload, syncOrderToSheet } from "./sheets-sync";
@@ -772,7 +772,11 @@ export async function runEngine(businessId: string, message: string, opts: Engin
 
   // Unknown case: no confident product, no other knowledge, no FAQ → apply the
   // configured "when the bot doesn't know" behavior instead of blindly calling AI.
-  const hasGrounding = confidentProduct || Boolean(knowledge) || Boolean(faqList);
+  // A remembered product from earlier in this same conversation counts too — a
+  // follow-up like "Jel imate srebreni?" scores zero against THIS message's
+  // own words (see topProducts below), but it is not actually ungrounded, so
+  // it must not be bounced to the canned "I don't know" reply either.
+  const hasGrounding = confidentProduct || Boolean(knowledge) || Boolean(faqList) || Boolean(convoState.productContextIds?.length);
   if (!hasGrounding && strategy !== "ai_heavy") {
     const u = unknownReply(settings?.unknownBehavior ?? "offer_handoff", lang, formal);
     if (convo && u.handoff) {
@@ -830,14 +834,31 @@ export async function runEngine(businessId: string, message: string, opts: Engin
     return { ...base, intent: "no_ai", reply: "", note };
   }
 
-  const topProducts = confidentProduct ? productMatches.slice(0, 6) : [];
-  // Stem match, not exact-word: Serbian nouns inflect by case ("u srebrnoj
-  // boji" = locative "boji", not "boja"/"boje") — real prod bug where a
-  // customer asking about color availability never triggered variant lookup
-  // because "boji" matched none of the old exact-word alternatives, so the
-  // AI had no stock data and hedged with "we'll check" instead of answering.
-  const askedVariant = /\b(velicin\w*|broj\w*|size\w*|boj\w*|colou?r\w*)\b/i.test(norm(message));
-  const variants = askedVariant && topProducts.length ? await variantsFor(businessId, topProducts.map((m) => m.product.id)) : new Map();
+  let topProducts = confidentProduct ? productMatches.slice(0, 6) : [];
+  // A follow-up that never re-names the product ("Jel imate srebreni?", "a
+  // ima li na stanju?") scores zero against matchProducts() above, since that
+  // only looks at THIS message's own words against product titles. Without
+  // this, productData below comes back empty and the system prompt's own
+  // "if the current item isn't clearly one of the products below, say the
+  // team will check" instruction fires — a real prod bug where a customer
+  // asking about color availability for the item just discussed got hedged
+  // at instead of answered, because the bot's grounding forgot which product
+  // "it" referred to. Re-ground on the product(s) discussed earlier in this
+  // same conversation instead.
+  if (!topProducts.length && convoState.productContextIds?.length) {
+    const remembered = await productsByIds(businessId, convoState.productContextIds);
+    topProducts = remembered.map((product) => ({ product, score: 0 }));
+  }
+  // Always fetch variant facts for a confidently matched product — a keyword
+  // gate here ("boja"/"veličina"/...) can never cover every phrasing a
+  // customer uses. Real prod bug: "Jel imate srebreni" names the color
+  // directly with no generic word for "color" in it at all, so the old
+  // keyword check (even stem-matched) never fired, the AI got no stock data,
+  // and hedged with "proverićemo sa timom" instead of just answering from the
+  // variants that were sitting right there. Fetching unconditionally is cheap
+  // (bounded to the same 6 already-matched products) and strictly improves
+  // grounding — it never removes information the AI already had.
+  const variants = topProducts.length ? await variantsFor(businessId, topProducts.map((m) => m.product.id)) : new Map();
   const productData = topProducts.map((m) => `- ${productFacts(m.product)}${variantFacts(variants.get(m.product.id) ?? [])}`).join("\n");
 
   const persInstruction = lang === "en" ? "" : formal ? "Address the customer formally (persiranje: Vi/Vas)." : "Address the customer informally (ti).";
@@ -992,7 +1013,10 @@ export async function runEngine(businessId: string, message: string, opts: Engin
       aiCalled: true
     }),
     // Remember what we talked about: matched products (or keep the previous context).
-    { productContext: topProducts.length ? topProducts.map((m) => m.product.title) : convoState.productContext }
+    {
+      productContext: topProducts.length ? topProducts.map((m) => m.product.title) : convoState.productContext,
+      productContextIds: topProducts.length ? topProducts.map((m) => m.product.id) : convoState.productContextIds
+    }
   );
 }
 
