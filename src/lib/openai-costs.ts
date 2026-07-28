@@ -23,7 +23,11 @@ export interface OpenAiCostResult {
 }
 
 interface CostsApiResponse {
-  data?: Array<{ results?: Array<{ amount?: { value?: number } }> }>;
+  // OpenAI sends amount.value as a decimal STRING (e.g. "0.4396051000...",
+  // 30 decimal places) rather than a JS number, to avoid float rounding on
+  // billing amounts — confirmed live: the diagnostic added below caught it
+  // exactly. Accept both shapes.
+  data?: Array<{ results?: Array<{ amount?: { value?: number | string } }> }>;
   has_more?: boolean;
   next_page?: string | null;
   error?: { message?: string };
@@ -73,15 +77,15 @@ export async function fetchRealOpenAiCost(
       for (const bucket of body.data ?? []) {
         for (const r of bucket.results ?? []) {
           const v = r.amount?.value;
-          // Validate BEFORE summing (not just NaN-check the total afterward)
-          // so a genuinely malformed value surfaces WHAT it actually was —
-          // "unexpected cost data shape" alone gave no way to tell whether
-          // the field was a string, an object, or something else without DB
-          // or log access; this shows it directly in the same admin card.
-          if (v !== undefined && typeof v !== "number") {
+          if (v === undefined) continue;
+          // A numeric string (see the CostsApiResponse note above) parses
+          // fine here; only something that ISN'T a number and doesn't parse
+          // to a finite one counts as genuinely malformed.
+          const n = typeof v === "number" ? v : Number(v);
+          if (!Number.isFinite(n)) {
             return { usd: 0, ok: false, error: `unexpected amount.value type "${typeof v}": ${JSON.stringify(v).slice(0, 80)}` };
           }
-          total += v ?? 0;
+          total += n;
         }
       }
       if (!body.has_more || !body.next_page) break;

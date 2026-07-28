@@ -87,15 +87,34 @@ describe("fetchRealOpenAiCost", () => {
     expect(r.error).toBe("fetch failed");
   });
 
-  it("a malformed amount.value (e.g. a string, not a number) fails soft with a diagnostic error naming the actual type/value", async () => {
+  it("amount.value as a decimal STRING (OpenAI's real shape, confirmed live) parses and sums correctly", async () => {
+    // OpenAI sends money amounts as high-precision decimal strings, not JS
+    // numbers (avoids float rounding on billing figures) — e.g.
+    // "0.439605100000000000000000000000". Confirmed against the live admin
+    // panel: this used to be rejected as "unexpected cost data shape".
     await setPlatform("OPENAI_ADMIN_API_KEY", "sk-admin-1");
     const fetchStub: CostsFetch = async () =>
-      ({ data: [{ results: [{ amount: { value: "0.06" as unknown as number } }] }], has_more: false }) as never;
+      ({
+        data: [
+          { results: [{ amount: { value: "0.439605100000000000000000000000" as unknown as number } }] },
+          { results: [{ amount: { value: "0.014072500000000000000000000000" as unknown as number } }] }
+        ],
+        has_more: false
+      }) as never;
+    const r = await fetchRealOpenAiCost("key_x", new Date(0), new Date(), fetchStub);
+    expect(r.ok).toBe(true);
+    expect(r.usd).toBeCloseTo(0.4536776);
+  });
+
+  it("a genuinely malformed amount.value (not a number and not numeric text) fails soft with a diagnostic error naming the actual type/value", async () => {
+    await setPlatform("OPENAI_ADMIN_API_KEY", "sk-admin-1");
+    const fetchStub: CostsFetch = async () =>
+      ({ data: [{ results: [{ amount: { value: "not-a-number" as unknown as number } }] }], has_more: false }) as never;
     const r = await fetchRealOpenAiCost("key_x", new Date(0), new Date(), fetchStub);
     expect(r.ok).toBe(false);
     expect(r.usd).toBe(0);
     expect(r.error).toContain('"string"');
-    expect(r.error).toContain("0.06");
+    expect(r.error).toContain("not-a-number");
   });
 
   it("fails soft instead of returning NaN when a bucket's amount isn't a usable number", async () => {
