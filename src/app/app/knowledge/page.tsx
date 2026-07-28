@@ -9,6 +9,7 @@ import { KnowledgeForm } from "./form";
 import { KnowledgeEditRow } from "./edit-row";
 import { IngestPanel } from "./ingest";
 import { WebsiteKnowledgeForm } from "./website";
+import { KnowledgeIdeas } from "./ideas";
 
 export default async function KnowledgePage({
   searchParams
@@ -49,6 +50,7 @@ export default async function KnowledgePage({
         </Card>
       )}
 
+      <KnowledgeIdeas />
       <KnowledgeForm businessId={business.id} prefillTitle={prefill} unansweredId={uq} />
       <WebsiteKnowledgeForm businessId={business.id} />
       <IngestPanel businessId={business.id} />
