@@ -36,7 +36,11 @@ const defaultCostsFetch: CostsFetch = async ({ adminKey, apiKeyId, startTime, en
   url.searchParams.set("start_time", String(Math.floor(startTime.getTime() / 1000)));
   url.searchParams.set("end_time", String(Math.floor(endTime.getTime() / 1000)));
   url.searchParams.set("limit", "180");
-  url.searchParams.append("api_key_ids[]", apiKeyId);
+  // Repeated bare param name, not "api_key_ids[]" — that bracket suffix is a
+  // PHP/Rails array convention OpenAI's API does not use; an unrecognized
+  // query param is typically just ignored, which would silently return the
+  // WHOLE org's spend instead of filtering to this business's key.
+  url.searchParams.append("api_key_ids", apiKeyId);
   if (page) url.searchParams.set("page", page);
   const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${adminKey}` } });
   const body = (await res.json()) as CostsApiResponse;
@@ -67,16 +71,25 @@ export async function fetchRealOpenAiCost(
       const body = await costsFetch({ adminKey, apiKeyId, startTime, endTime, page });
       if (body.error) return { usd: 0, ok: false, error: body.error.message };
       for (const bucket of body.data ?? []) {
-        for (const r of bucket.results ?? []) total += r.amount?.value ?? 0;
+        for (const r of bucket.results ?? []) {
+          const v = r.amount?.value;
+          // Validate BEFORE summing (not just NaN-check the total afterward)
+          // so a genuinely malformed value surfaces WHAT it actually was —
+          // "unexpected cost data shape" alone gave no way to tell whether
+          // the field was a string, an object, or something else without DB
+          // or log access; this shows it directly in the same admin card.
+          if (v !== undefined && typeof v !== "number") {
+            return { usd: 0, ok: false, error: `unexpected amount.value type "${typeof v}": ${JSON.stringify(v).slice(0, 80)}` };
+          }
+          total += v ?? 0;
+        }
       }
       if (!body.has_more || !body.next_page) break;
       page = body.next_page;
     }
-    // A malformed/unexpected bucket shape (a non-numeric amount.value, e.g.)
-    // can leave `total` as NaN — jsonb serialization silently turns NaN into
-    // null on the round trip through the DB cache, which then crashed the
-    // admin page's `.toFixed()` call on a later "warm" read. Fail soft here
-    // instead of ever persisting a non-finite number.
+    // jsonb has no NaN — persisting one silently turns into null on the round
+    // trip through the DB cache and crashes a later `.toFixed()` read. Belt
+    // and suspenders on top of the per-value check above.
     if (!Number.isFinite(total)) return { usd: 0, ok: false, error: "unexpected cost data shape from OpenAI" };
     return { usd: Math.round(total * 1_000_000) / 1_000_000, ok: true };
   } catch (err) {

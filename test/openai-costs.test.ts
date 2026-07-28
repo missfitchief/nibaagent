@@ -87,6 +87,17 @@ describe("fetchRealOpenAiCost", () => {
     expect(r.error).toBe("fetch failed");
   });
 
+  it("a malformed amount.value (e.g. a string, not a number) fails soft with a diagnostic error naming the actual type/value", async () => {
+    await setPlatform("OPENAI_ADMIN_API_KEY", "sk-admin-1");
+    const fetchStub: CostsFetch = async () =>
+      ({ data: [{ results: [{ amount: { value: "0.06" as unknown as number } }] }], has_more: false }) as never;
+    const r = await fetchRealOpenAiCost("key_x", new Date(0), new Date(), fetchStub);
+    expect(r.ok).toBe(false);
+    expect(r.usd).toBe(0);
+    expect(r.error).toContain('"string"');
+    expect(r.error).toContain("0.06");
+  });
+
   it("fails soft instead of returning NaN when a bucket's amount isn't a usable number", async () => {
     // Real prod bug: a malformed/unexpected amount value made `total` end up
     // NaN. That NaN got serialized into the jsonb cache column as `null`
