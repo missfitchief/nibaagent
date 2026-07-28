@@ -110,7 +110,38 @@ const norm = (s: string) =>
     .replace(/\p{Diacritic}/gu, "")
     .toLowerCase();
 
-const ORDER_PATTERNS = [/naruc/i, /poruc/i, /kupuj/i, /uzimam/i, /zelim (da )?(narucim|porucim|kupim)/i, /how (do|can) i (order|buy)/i, /i want to (order|buy)/i];
+// Explicit "I want to order" phrasing — unambiguous fresh intent, always
+// counts regardless of anything else in the message.
+const STRONG_ORDER_PATTERNS = [
+  /zelim (da )?(narucim|porucim|kupim)/i,
+  /hocu (da )?(narucim|porucim|kupim)/i,
+  /how (do|can) i (order|buy)/i,
+  /i want to (order|buy)/i
+];
+// Bare stem — matches ANY word containing it (naručujem/naručila/naručiću/...),
+// which is why the two exclusions below exist.
+const WEAK_ORDER_STEM = /naruc|poruc|kupuj|uzimam/i;
+// Serbian past participle ("naručila/naručio/naručili/naručilo/naručile sam") —
+// unambiguously means an order ALREADY happened, not a request to place one
+// now. Real prod bug: a customer asked "hoće li moja narudžba brzo [stići]",
+// then explained "Pa naručila sam u četvrtak prošle sedmice" — purely a
+// status-check on an existing order — and the bare stem match fired the
+// full "nothing known yet" collection template as if she'd just asked to
+// place a brand new one.
+const PAST_ORDER_CLAIM_RE = /\b(naruci|poruci)(o|la|lo|li|le)\b/i;
+// "I'll order it somewhere ELSE" — grammatically present/future tense (so the
+// past-tense check above doesn't catch it) but still not intent to order
+// HERE. Same conversation: "Ako neće sutra stići onda da naručim negdje
+// drugo" re-triggered the identical collection template a second time.
+const ORDER_ELSEWHERE_RE = /(negdje drug|drugdje|drugde|kod drugog|drugi prodavac|drugom prodavcu)/i;
+
+export function detectOrderIntent(message: string): boolean {
+  const n = norm(message);
+  if (STRONG_ORDER_PATTERNS.some((p) => p.test(n))) return true;
+  if (!WEAK_ORDER_STEM.test(n)) return false;
+  if (PAST_ORDER_CLAIM_RE.test(n) || ORDER_ELSEWHERE_RE.test(n)) return false;
+  return true;
+}
 
 /**
  * Greetings/farewells/fillers that are NOT city names — a bare capitalized
@@ -125,11 +156,6 @@ const NON_CITY_WORDS = new Set([
   "dovidjenja", "vidimo se", "laku noc", "vazi", "super", "odlicno", "ok", "okej", "dobro",
   "molim", "izvini", "izvinite", "u redu", "naravno", "svakako", "razumem", "razumijem"
 ]);
-
-export function detectOrderIntent(message: string): boolean {
-  const n = norm(message);
-  return ORDER_PATTERNS.some((p) => p.test(n));
-}
 
 /** Any customer/order data present in an extraction result? */
 function hasAnyOrderField(o: Partial<OrderData>): boolean {

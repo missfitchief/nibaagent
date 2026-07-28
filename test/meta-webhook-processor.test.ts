@@ -368,6 +368,30 @@ describe("meta webhook processor", () => {
       expect(orderRows[0].phone.replace(/\D/g, "")).toBe("066437898");
     });
 
+    it("a past-tense order claim and an 'I'll buy elsewhere' complaint don't re-trigger the collection template", async () => {
+      // Real prod bug, seen live: a customer asked about her order's
+      // delivery time, then said she'd ordered "last Thursday" (past
+      // tense), then said she'd buy elsewhere if it's late — the old
+      // bare-stem detectOrderIntent ("naruc"/"poruc" ANYWHERE in the
+      // message) read BOTH as fresh order intent and fired the full
+      // "Super! Za porudžbinu nam pošaljite..." collection template twice
+      // in a row, verbatim, completely ignoring what she actually said.
+      const sender = "cust-past-tense";
+      const deps = {
+        ...fastDeps,
+        engineOptions: { chatCompletion: async () => ({ text: "Vaša narudžba će biti gotova uskoro.", tokens: 10 }) }
+      };
+
+      const r1 = await processMetaWebhook(messengerPayload(PAGE1, sender, "pt-1", "Pa naručila sam u četvrtak prošle sedmice"), deps);
+      expect(r1.replied).toBe(1);
+      expect(sent[sent.length - 1].text).not.toMatch(/za porudžbinu nam pošaljite/i);
+
+      sent = [];
+      const r2 = await processMetaWebhook(messengerPayload(PAGE1, sender, "pt-2", "Ako nece sutra stici onda da naručim negdje drugo"), deps);
+      expect(r2.replied).toBe(1);
+      expect(sent[sent.length - 1].text).not.toMatch(/za porudžbinu nam pošaljite/i);
+    });
+
     it("sheet failure does NOT break the order — error recorded, reply still sent", async () => {
       const sender = "cust-order-fail";
       await db.update(schema.businesses).set({ googleSheetUrl: "https://script.google.com/fail" }).where(eq(schema.businesses.id, biz1));
