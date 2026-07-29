@@ -87,6 +87,40 @@ describe("follow-up product grounding (no product name in the message)", () => {
   });
 });
 
+describe("no confident/denied claims beyond what's grounded", () => {
+  it("a personalized product's description reaches the AI, and the anti-hallucination rule covers customization claims", async () => {
+    // Real prod bug: three separate live conversations where the bot
+    // confidently answered customization questions WRONG in both
+    // directions — claimed "our team confirmed" a finish that was never
+    // confirmed, denied a charm-count option that the website actually
+    // offers, and told a customer personalization wasn't available on a
+    // product literally titled "Personalizovana narukvica" (Personalized
+    // bracelet) — right after she'd sent full order details expecting it.
+    const { business } = await seedBusiness(db, "Nakit shop 3");
+    await db.update(schema.businesses).set({ aiMode: "live", defaultLanguage: "sr" }).where(eq(schema.businesses.id, business.id));
+    await db.insert(schema.products).values({
+      businessId: business.id,
+      title: "Moja Priča — Personalizovana narukvica od nerđajućeg čelika i kože",
+      description: "Upišite željeno ime u napomenu. Dostupno sa 3 do 8 stopala.",
+      price: "37.90",
+      currency: "BAM",
+      stockStatus: "available"
+    });
+
+    let systemSeen = "";
+    await runEngine(business.id, "Da li mogu da dodam ime na narukvicu?", {
+      chatCompletion: async (input) => {
+        systemSeen = input.system;
+        return { text: "Da, možete dodati ime.", tokens: 10 };
+      }
+    });
+    expect(systemSeen).toContain("Upišite željeno ime");
+    expect(systemSeen).toContain("3 do 8 stopala");
+    expect(systemSeen).toMatch(/customization\/variant questions/i);
+    expect(systemSeen).toMatch(/never claim ['’]the team confirmed['’]/i);
+  });
+});
+
 describe("vision-attached prompt", () => {
   it("tells the model to ignore any person in the photo and focus on the product", async () => {
     const { business } = await seedBusiness(db, "Nakit shop");

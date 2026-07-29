@@ -41,6 +41,25 @@ describe("products: business isolation + fact source", () => {
     expect(facts).toContain("available to order");
     expect(facts).toContain("zlatna");
   });
+
+  it("product description is included in facts — the only place customization/personalization details live", async () => {
+    // Real prod bug: a product titled "Personalizovana narukvica" (a
+    // bracelet whose whole point is that it CAN be personalized) still got
+    // told to a customer "we don't offer personalization" — because
+    // description (where a business writes "upišite ime, dostupno sa 3-8
+    // stopala" etc.) was silently dropped before ever reaching the AI, and
+    // there's no other structured field for that kind of detail.
+    const withDescription = await createProduct(A.business.id, {
+      title: "Moja Priča narukvica",
+      description: "Personalizovana narukvica — upišite željeno ime, dostupno sa 3 do 8 stopala.",
+      price: 37.9,
+      currency: "BAM",
+      stockStatus: "available"
+    });
+    const facts = productFacts(withDescription);
+    expect(facts).toContain("upišite željeno ime");
+    expect(facts).toContain("3 do 8 stopala");
+  });
 });
 
 describe("products: noun-case matching (sr/bs/hr)", () => {

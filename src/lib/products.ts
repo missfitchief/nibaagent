@@ -107,7 +107,14 @@ export function productFacts(p: ProductRow): string {
         : "stock unknown (must verify)";
   const colors = (p.colors as string[])?.length ? ` | colors: ${(p.colors as string[]).join("/")}` : "";
   const sizes = (p.sizes as string[])?.length ? ` | sizes: ${(p.sizes as string[]).join("/")}` : "";
-  return `${p.title} — ${price} | ${stock}${colors}${sizes}${p.sku ? ` | sku ${p.sku}` : ""}`;
+  // Real prod bug: description was never included here, even though it's
+  // where a business writes things like "can be personalized with a name" or
+  // "available with 3-8 charms" — with no other structured field for that,
+  // the AI had zero grounding for it and started confidently denying options
+  // that DID exist (a product literally titled "Personalizovana narukvica"
+  // still got told to a customer "we don't offer personalization").
+  const description = p.description?.trim() ? ` | details: ${p.description.trim().slice(0, 300)}` : "";
+  return `${p.title} — ${price} | ${stock}${colors}${sizes}${p.sku ? ` | sku ${p.sku}` : ""}${description}`;
 }
 
 export async function listProducts(businessId: string): Promise<ProductRow[]> {

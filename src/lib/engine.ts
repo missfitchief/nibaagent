@@ -952,6 +952,7 @@ export async function runEngine(businessId: string, message: string, opts: Engin
     prevProductsNote,
     adNote,
     "NEVER invent prices, stock, delivery terms or product facts. A price belongs to ONE specific product — if the customer is now asking about a different item than whichever one a price was quoted for earlier in this conversation, do NOT reuse that earlier number. Only state a price that is for the CURRENT item and is explicitly listed in PRODUCTS below. If the current item isn't clearly one of the products below, say the team will check and reply soon instead of guessing.",
+    "This rule applies EQUALLY to customization/variant questions (personalization, engraving a name, finish/color options, how many charms, materials) — both confirming something IS possible and claiming something is NOT possible are equally invented if it is not explicitly stated in PRODUCTS/BUSINESS INFO/FAQ below. Never say a feature isn't offered just because you don't see it listed — the product's own title/description may already confirm it, so read them carefully first. If it genuinely isn't confirmed either way, say the team will check, instead of confidently answering yes OR no. Never claim 'the team confirmed' something — you have not spoken to anyone; only state it if it is written in the data below.",
     settings?.customInstructions ? `Business rules: ${settings.customInstructions.slice(0, 800)}` : "",
     summary,
     productData ? `PRODUCTS (authoritative — prices/stock/colors come from here, never invent):\n${productData}` : "",
