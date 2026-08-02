@@ -51,6 +51,21 @@ function messengerImagePayload(pageId: string, senderId: string, mid: string, im
   };
 }
 
+/** Meta batches several rapid messages from the same sender into ONE webhook
+ *  POST — multiple `messaging` entries in a single call, not separate calls. */
+function messengerBatchPayload(pageId: string, senderId: string, msgs: Array<{ mid: string; text: string; ts: number }>) {
+  return {
+    object: "page",
+    entry: [
+      {
+        id: pageId,
+        time: msgs[msgs.length - 1]?.ts ?? 1000,
+        messaging: msgs.map((m) => ({ sender: { id: senderId }, recipient: { id: pageId }, timestamp: m.ts, message: { mid: m.mid, text: m.text } }))
+      }
+    ]
+  };
+}
+
 /** Click-to-Messenger ad-open event: no typed message yet, just the referral. */
 function adOpenPayload(pageId: string, senderId: string, adTitle: string, ts = 1000) {
   return {
@@ -253,6 +268,32 @@ describe("meta webhook processor", () => {
       const rows = await db.select().from(schema.messages).where(eq(schema.messages.conversationId, convo!.id));
       expect(rows.filter((r) => r.direction === "inbound")).toHaveLength(5);
       expect(rows.filter((r) => r.direction === "outbound")).toHaveLength(1);
+    });
+
+    it("same-batch burst: Meta sends 2 messages in ONE webhook POST → still ONE reply, not two", async () => {
+      // Real prod bug, seen live: a customer sent "I da pisu imena djece?"
+      // then "Lijep pozdrav" — Meta delivered BOTH as separate `messaging`
+      // entries in a SINGLE webhook call (it commonly batches rapid
+      // messages this way, unlike the staggered-separate-calls case above).
+      // The old code's sequential loop fully replied to the first message
+      // (debounce → engine → send) before even looking at the second, so
+      // its own "is there a newer message" check always came up empty —
+      // the second message didn't exist in the DB yet. Both messages got
+      // their own full separate reply instead of being merged into one.
+      const sender = "cust-same-batch";
+      const payload = messengerBatchPayload(PAGE1, sender, [
+        { mid: "sb-1", text: "Koliko je dostava?", ts: 1000 },
+        { mid: "sb-2", text: "Hvala", ts: 1001 }
+      ]);
+      const r = await processMetaWebhook(payload, fastDeps);
+      expect(r.received).toBe(2);
+      expect(r.replied).toBe(1);
+      expect(sent).toHaveLength(1);
+
+      const convo = (await db.select().from(schema.conversations).where(eq(schema.conversations.businessId, biz1))).find((c) => c.senderId === sender);
+      const rows = await db.select().from(schema.messages).where(eq(schema.messages.conversationId, convo!.id));
+      expect(rows.filter((r2) => r2.direction === "inbound")).toHaveLength(2);
+      expect(rows.filter((r2) => r2.direction === "outbound")).toHaveLength(1);
     });
 
     it("instagram: routed via IG account, sends with IG token + account id", async () => {

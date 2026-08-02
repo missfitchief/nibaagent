@@ -4,7 +4,7 @@ import { db } from "./db/client";
 import { businesses, messages, metaConnections, processedMessages } from "./db/schema";
 import { decryptToken } from "./crypto";
 import { logEvent, sendInstagramText, sendMessengerText } from "./meta";
-import { findOrCreateConversation, saveConversationMessage, type Channel } from "./conversation-memory";
+import { findOrCreateConversation, saveConversationMessage, type Channel, type MessageRow } from "./conversation-memory";
 import { runEngine, type EngineOptions } from "./engine";
 
 /**
@@ -130,24 +130,71 @@ function fallbackApology(lang: string): string {
     : "Izvinjavamo se — trenutno imamo tehničkih poteškoća. Naš tim će Vam se javiti uskoro.";
 }
 
+/** A successfully deduped + tenant-resolved + saved inbound event. */
+interface SavedInbound {
+  ev: ParsedInbound;
+  businessId: string;
+  conn: typeof metaConnections.$inferSelect;
+  convoId: string;
+  conversationKey: { channel: Channel; senderId: string };
+  mine: MessageRow;
+}
+
 /** Process one full webhook payload (all entries/events). Never throws. */
 export async function processMetaWebhook(body: unknown, deps: ProcessorDeps = {}): Promise<{ received: number; replied: number }> {
   const events = parseMetaWebhookEvents(body);
-  let replied = 0;
+
+  // Phase 1: dedupe + tenant-resolve + SAVE every event, in order. This must
+  // finish for ALL events before any of them replies — see phase 2 below.
+  const saved: SavedInbound[] = [];
   for (const ev of events) {
     try {
-      const did = await processOne(ev, deps);
+      const s = await saveInbound(ev);
+      if (s) saved.push(s);
+    } catch (err) {
+      await logEvent(null, "error", "webhook_process", `Unhandled (save): ${(err as Error).message}`, { messageId: ev.messageId });
+    }
+  }
+
+  // Phase 2: reply — but only to the LAST saved event per conversation.
+  //
+  // Real prod bug: Meta commonly batches several rapid messages from the
+  // same customer into ONE webhook POST (multiple `messaging` entries in a
+  // single call). The old code processed them with a sequential `for` loop
+  // that fully finished each event — debounce sleep, engine call, AND send —
+  // before even looking at the next one. So when event B's turn came, its
+  // own debounce check for "is there a newer message" found nothing newer,
+  // because B hadn't been SAVED yet while A was still mid-flight — A always
+  // won its own race trivially. Every message in a same-batch burst got its
+  // own separate reply instead of being merged into one, exactly the
+  // "several bot messages in a row" a customer would see.
+  //
+  // Saving every event up front (phase 1) before any of them replies means
+  // an EARLIER event in this same batch can now correctly see the later one
+  // sitting in the DB already and skip straight to being superseded — no
+  // debounce wait needed, since we already know for certain there is a
+  // newer message in this very batch.
+  const lastIndexByConvo = new Map<string, number>();
+  saved.forEach((s, i) => lastIndexByConvo.set(s.convoId, i));
+
+  let replied = 0;
+  for (let i = 0; i < saved.length; i++) {
+    const s = saved[i];
+    if (lastIndexByConvo.get(s.convoId) !== i) {
+      await logEvent(s.businessId, "info", "webhook_process", `Burst merge: ${s.ev.messageId} superseded within the same batch — no separate reply`);
+      continue;
+    }
+    try {
+      const did = await replyToLatest(s, deps);
       if (did) replied += 1;
     } catch (err) {
-      await logEvent(null, "error", "webhook_process", `Unhandled: ${(err as Error).message}`, { messageId: ev.messageId });
+      await logEvent(s.businessId, "error", "webhook_process", `Unhandled: ${(err as Error).message}`, { messageId: s.ev.messageId });
     }
   }
   return { received: events.length, replied };
 }
 
-async function processOne(ev: ParsedInbound, deps: ProcessorDeps): Promise<boolean> {
-  const sleep = deps.sleep ?? realSleep;
-  const sendText = deps.sendText ?? defaultSend;
+async function saveInbound(ev: ParsedInbound): Promise<SavedInbound | null> {
   const d = db();
 
   // 1. dedupe — Meta retries webhooks; each message id is handled exactly once.
@@ -156,7 +203,7 @@ async function processOne(ev: ParsedInbound, deps: ProcessorDeps): Promise<boole
     .values({ messageId: ev.messageId, pageId: ev.pageId, senderId: ev.senderId })
     .onConflictDoNothing()
     .returning({ messageId: processedMessages.messageId });
-  if (inserted.length === 0) return false; // already processed (or in-flight)
+  if (inserted.length === 0) return null; // already processed (or in-flight)
 
   // 2. tenant resolve — strictly by the receiving page / IG account.
   const [conn] =
@@ -165,7 +212,7 @@ async function processOne(ev: ParsedInbound, deps: ProcessorDeps): Promise<boole
       : await d.select().from(metaConnections).where(eq(metaConnections.pageId, ev.pageId)).limit(1);
   if (!conn || (conn.status !== "active" && conn.status !== "connected")) {
     await logEvent(null, "warn", "webhook_process", `No active tenant for ${ev.channel} page ${ev.pageId}`, { senderId: ev.senderId });
-    return false;
+    return null;
   }
   const businessId = conn.businessId;
   const conversationKey = { channel: ev.channel, senderId: ev.senderId } as const;
@@ -183,8 +230,21 @@ async function processOne(ev: ParsedInbound, deps: ProcessorDeps): Promise<boole
     imageUrl: ev.imageUrl
   });
 
+  return { ev, businessId, conn, convoId: convo.id, conversationKey, mine };
+}
+
+async function replyToLatest(saved: SavedInbound, deps: ProcessorDeps): Promise<boolean> {
+  const sleep = deps.sleep ?? realSleep;
+  const sendText = deps.sendText ?? defaultSend;
+  const d = db();
+  const { ev, businessId, conn, mine, conversationKey } = saved;
+  const convo = { id: saved.convoId };
+
   // 4. debounce — wait, then bail out if a NEWER inbound message exists in the
-  //    same conversation (its own run will reply with the full context).
+  //    same conversation (its own run will reply with the full context). This
+  //    now only catches a message arriving via a SEPARATE, concurrent webhook
+  //    call while this one is mid-flight — same-batch bursts are already
+  //    resolved above, before this function is ever called for them.
   await sleep(deps.debounceMs ?? WEBHOOK_DEBOUNCE_MS);
   const newer = await d
     .select({ id: messages.id })
