@@ -48,6 +48,45 @@ describe("variant/color grounding", () => {
   });
 });
 
+describe("per-variant stock grounding", () => {
+  it("a color's OWN stock is stated, distinct from the product's general stock line", async () => {
+    // Real prod bug: a customer asked "u srebrenoj boji mozda da li imate"
+    // (do you have it in silver) and the bot confidently said "Nažalost,
+    // trenutno nemamo dostupnu 'Mama' ogrlicu u srebrnoj boji" — but the
+    // silver variant WAS in stock. variantFacts() listed color/price/size
+    // per variant but never that variant's OWN stock status, so the AI had
+    // no per-color signal and fell back to guessing from the product's one
+    // general stock line, which doesn't necessarily reflect any one color.
+    const { business } = await seedBusiness(db, "Nakit shop 4");
+    await db.update(schema.businesses).set({ aiMode: "live", defaultLanguage: "sr" }).where(eq(schema.businesses.id, business.id));
+    const [product] = await db
+      .insert(schema.products)
+      .values({ businessId: business.id, title: "Mama ogrlica sa priveskom stopala", price: "45.90", currency: "BAM", stockStatus: "unknown" })
+      .returning({ id: schema.products.id });
+    await db.insert(schema.productVariants).values([
+      { businessId: business.id, productId: product.id, name: "Srebrna", color: "srebrna", stockStatus: "available" },
+      { businessId: business.id, productId: product.id, name: "Zlatna", color: "zlatna", stockStatus: "unavailable" }
+    ]);
+
+    const conversationKey = { channel: "facebook" as const, senderId: "cust-variant-stock" };
+    await runEngine(business.id, "Koliko kosta mama ogrlica sa priveskom stopala?", {
+      conversation: conversationKey,
+      chatCompletion: async () => ({ text: "Cena je 45.90 BAM.", tokens: 10 })
+    });
+
+    let systemSeen = "";
+    await runEngine(business.id, "U srebrenoj boji mozda da li imate?", {
+      conversation: conversationKey,
+      chatCompletion: async (input) => {
+        systemSeen = input.system;
+        return { text: "Da, imamo je u srebrnoj boji.", tokens: 10 };
+      }
+    });
+    expect(systemSeen).toMatch(/srebrna[^;]*\(available to order\)/i);
+    expect(systemSeen).toMatch(/zlatna[^;]*\(not available\)/i);
+  });
+});
+
 describe("follow-up product grounding (no product name in the message)", () => {
   it("'Jel imate srebreni' after the item was already discussed still grounds on it, not a generic hedge", async () => {
     const { business } = await seedBusiness(db, "Nakit shop 2");

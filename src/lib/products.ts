@@ -96,15 +96,15 @@ export async function productsByIds(businessId: string, ids: string[]): Promise<
     .where(and(eq(products.businessId, businessId), inArray(products.id, ids)));
 }
 
+/** Shared wording so a product's own stock and each of its variants' stock read consistently to the AI. */
+function stockLabel(status: StockStatus): string {
+  return status === "available" ? "available to order" : status === "unavailable" ? "not available" : "stock unknown (must verify)";
+}
+
 /** Compact, grounded product facts for the AI prompt / fact composer. */
 export function productFacts(p: ProductRow): string {
   const price = p.price != null ? `${p.price} ${p.currency}` : "price not listed";
-  const stock =
-    p.stockStatus === "available"
-      ? "available to order"
-      : p.stockStatus === "unavailable"
-        ? "not available"
-        : "stock unknown (must verify)";
+  const stock = stockLabel(p.stockStatus);
   const colors = (p.colors as string[])?.length ? ` | colors: ${(p.colors as string[]).join("/")}` : "";
   const sizes = (p.sizes as string[])?.length ? ` | sizes: ${(p.sizes as string[]).join("/")}` : "";
   // Real prod bug: description was never included here, even though it's
@@ -262,14 +262,30 @@ export async function variantsFor(businessId: string, productIds: string[]): Pro
   return map;
 }
 
-/** Product facts including variant color/size lines (used when asked). */
+/**
+ * Product facts including variant color/size lines (used when asked).
+ *
+ * Real prod bug: this never included each variant's OWN stock status, only
+ * its name/price/color/size — so a customer asking "do you have it in
+ * silver?" got answered from the PRODUCT's single overall stock field (which
+ * doesn't necessarily reflect any one color), and the AI guessed wrong ("we
+ * don't have it in silver") even though that exact color's own variant row
+ * was actually in stock. Each variant now states its own stock explicitly,
+ * the same wording as productFacts(), so a color/size-specific question has
+ * real per-variant grounding instead of the model inferring from the
+ * product-wide status.
+ */
 export function variantFacts(vs: (typeof productVariants.$inferSelect)[]): string {
   if (!vs.length) return "";
   return (
     " | variants: " +
     vs
       .slice(0, 12)
-      .map((v) => [v.name || v.color || v.size, v.price != null ? `${v.price}` : null, v.color, v.size].filter(Boolean).join(" "))
+      .map((v) =>
+        [v.name || v.color || v.size, v.price != null ? `${v.price}` : null, v.color, v.size, `(${stockLabel(v.stockStatus)})`]
+          .filter(Boolean)
+          .join(" ")
+      )
       .join("; ")
   );
 }
