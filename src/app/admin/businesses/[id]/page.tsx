@@ -660,12 +660,13 @@ export default async function AdminBusinessDetail({
         </form>
         {!biz.openaiApiKeyId && <p className="mt-2 text-xs text-[var(--ink-soft)]">Nije podešeno — prikazuje se samo naša procena.</p>}
         {realCost && (
-          <div className="mt-3 grid grid-cols-3 gap-3">
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
             {(
               [
                 ["Danas", realCost.daily],
                 ["7 dana", realCost.weekly],
-                ["30 dana", realCost.monthly]
+                ["30 dana", realCost.monthly],
+                ["Ukupno", realCost.allTime]
               ] as const
             ).map(([label, r]) => (
               <div key={label} className="rounded-xl border border-[var(--card-border)] bg-white/60 p-3">

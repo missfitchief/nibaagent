@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db/client";
@@ -49,6 +50,14 @@ export default async function HandoffPage() {
                 <p className="mt-1 text-sm text-[var(--ink-soft)]">
                   {h.reason || (h.triggerWord ? `Trigger word: “${h.triggerWord}”` : "Handoff requested")} ·{" "}
                   {h.createdAt.toISOString().replace("T", " ").slice(0, 16)}
+                  {h.conversationId && (
+                    <>
+                      {" · "}
+                      <Link href={`/app/conversations/${h.conversationId}`} className="text-sky-600 hover:underline">
+                        View chat →
+                      </Link>
+                    </>
+                  )}
                 </p>
               </div>
               {h.status === "open" && (

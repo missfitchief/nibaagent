@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db/client";
@@ -40,7 +41,11 @@ export default async function ConversationsPage() {
               <tbody>
                 {rows.map((c) => (
                   <tr key={c.id} className="border-t border-[var(--card-border)]">
-                    <td className="py-2 pr-4">{c.customerName || c.senderId}</td>
+                    <td className="py-2 pr-4">
+                      <Link href={`/app/conversations/${c.id}`} className="text-sky-600 hover:underline">
+                        {c.customerName || c.senderId}
+                      </Link>
+                    </td>
                     <td className="py-2 pr-4">{c.channel}</td>
                     <td className="py-2 pr-4">
                       <Badge tone={c.status === "handoff" ? "warn" : c.status === "closed" ? "neutral" : "ok"}>{c.status}</Badge>

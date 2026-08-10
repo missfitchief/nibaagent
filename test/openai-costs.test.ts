@@ -160,7 +160,8 @@ describe("getRealCostWindows (cached)", () => {
 
     const r1 = await getRealCostWindows({ id: business.id, openaiApiKeyId: "key_cache", realCostCache: null }, now, 5 * 60 * 1000, fetchStub);
     expect(r1?.daily.usd).toBeCloseTo(1.23);
-    expect(calls).toBe(3); // one fetch per window (daily/weekly/monthly)
+    expect(r1?.allTime.usd).toBeCloseTo(1.23);
+    expect(calls).toBe(4); // one fetch per window (daily/weekly/monthly/allTime)
 
     const [row] = await db.select().from(businesses).where(eq(businesses.id, business.id));
     expect(row.realCostCache).toBeTruthy();
@@ -174,7 +175,7 @@ describe("getRealCostWindows (cached)", () => {
       fetchStub
     );
     expect(warm?.daily.usd).toBeCloseTo(1.23);
-    expect(calls).toBe(3); // unchanged — no new fetch happened
+    expect(calls).toBe(4); // unchanged — no new fetch happened
   });
 
   it("re-fetches once the cache is older than the TTL", async () => {
@@ -187,7 +188,7 @@ describe("getRealCostWindows (cached)", () => {
     };
     const now = new Date();
     const r1 = await getRealCostWindows({ id: business.id, openaiApiKeyId: "key_stale", realCostCache: null }, now, 60_000, fetchStub);
-    expect(calls).toBe(3);
+    expect(calls).toBe(4);
 
     const [row] = await db.select().from(businesses).where(eq(businesses.id, business.id));
     const r2 = await getRealCostWindows(
@@ -196,7 +197,7 @@ describe("getRealCostWindows (cached)", () => {
       60_000,
       fetchStub
     );
-    expect(calls).toBe(6); // re-fetched
+    expect(calls).toBe(8); // re-fetched
     expect(r1?.daily.usd).toBe(r2?.daily.usd);
   });
 });

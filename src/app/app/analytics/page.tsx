@@ -5,6 +5,18 @@ import { handoffs, messages, orders } from "@/lib/db/schema";
 import { ownBusiness, requireUser } from "@/lib/auth/guards";
 import { estimateSavings } from "@/lib/plans";
 import { Card, Stat } from "@/components/ui";
+import { MessagesChart, type DailyPoint } from "./messages-chart";
+
+/** Every day in the last N days (oldest first), as "YYYY-MM-DD" (UTC). */
+function last30Days(): string[] {
+  const out: string[] = [];
+  const today = new Date();
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() - i));
+    out.push(d.toISOString().slice(0, 10));
+  }
+  return out;
+}
 
 export default async function AnalyticsPage() {
   const user = await requireUser();
@@ -33,7 +45,20 @@ export default async function AnalyticsPage() {
   const [orderCount] = await d.select({ n: sql<number>`count(*)::int` }).from(orders).where(eq(orders.businessId, business.id));
   const [handoffCount] = await d.select({ n: sql<number>`count(*)::int` }).from(handoffs).where(eq(handoffs.businessId, business.id));
   const savings = estimateSavings(aiTotal?.n ?? 0);
-  const max = Math.max(1, ...daily.map((r) => r.total));
+
+  // The line chart needs a CONTINUOUS daily series — the query above only
+  // returns days that had at least one message, so a quiet day would
+  // otherwise just be missing (silently compressing the timeline) instead
+  // of showing as a real dip to zero.
+  const byDay = new Map(daily.map((r) => [r.day, r]));
+  const series: DailyPoint[] = last30Days().map((day) => {
+    const r = byDay.get(day);
+    return { day, total: r?.total ?? 0, ai: r?.ai ?? 0 };
+  });
+  const today = series[series.length - 1];
+  const yesterday = series[series.length - 2];
+  const dayBefore = series[series.length - 3];
+  const thisWeek = series.slice(-7).reduce((sum, r) => sum + r.total, 0);
 
   return (
     <main className="space-y-5">
@@ -49,30 +74,19 @@ export default async function AnalyticsPage() {
         <Stat label="Est. saved" value={`€${savings.savedEur}`} hint={`≈ ${Math.round(savings.savedMinutes / 60)}h (estimate)`} tone="ok" />
       </section>
 
+      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Stat label="Today" value={today.total} hint={`${today.ai} by AI`} />
+        <Stat label="Yesterday" value={yesterday.total} hint={`${yesterday.ai} by AI`} />
+        <Stat label="Day before yesterday" value={dayBefore.total} hint={`${dayBefore.ai} by AI`} />
+        <Stat label="This week (7 days)" value={thisWeek} />
+      </section>
+
       <Card>
         <h2 className="font-semibold">Messages per day</h2>
-        {daily.length === 0 ? (
-          <p className="mt-3 text-sm text-[var(--ink-soft)]">No messages in the last 30 days yet.</p>
-        ) : (
-          <div className="mt-4 flex h-40 items-end gap-1">
-            {daily.map((r) => (
-              <div key={r.day} className="group relative flex-1">
-                <div className="w-full rounded-t bg-sky-200" style={{ height: `${(r.total / max) * 100}%`, minHeight: 2 }} />
-                <div
-                  className="absolute bottom-0 w-full rounded-t bg-gradient-to-t from-sky-500 to-cyan-400"
-                  style={{ height: `${(r.ai / max) * 100}%`, minHeight: r.ai ? 2 : 0 }}
-                />
-                <div className="pointer-events-none absolute -top-8 left-1/2 hidden -translate-x-1/2 whitespace-nowrap rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-white group-hover:block">
-                  {r.day}: {r.total} msgs, {r.ai} AI
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-        <p className="mt-2 text-xs text-[var(--ink-soft)]">
-          <span className="mr-3 inline-block h-2 w-2 rounded-full bg-gradient-to-t from-sky-500 to-cyan-400" /> AI replies
-          <span className="mx-2 inline-block h-2 w-2 rounded-full bg-sky-200" /> All messages
-        </p>
+        <p className="mt-1 text-xs text-[var(--ink-soft)]">Last 30 days — hover the line for exact numbers on any day.</p>
+        <div className="mt-4">
+          <MessagesChart daily={series} />
+        </div>
       </Card>
 
       <p className="text-xs text-[var(--ink-soft)]">

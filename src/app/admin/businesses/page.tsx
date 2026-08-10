@@ -5,6 +5,7 @@ import { db } from "@/lib/db/client";
 import { businesses } from "@/lib/db/schema";
 import { Badge, Card, Input } from "@/components/ui";
 import { AdminCreateBusinessForm } from "./create-form";
+import { getRealCostWindows } from "@/lib/openai-costs";
 
 export default async function BusinessesPage({
   searchParams
@@ -27,6 +28,11 @@ export default async function BusinessesPage({
     .where(filters.length ? and(...filters) : undefined)
     .orderBy(desc(businesses.createdAt))
     .limit(100);
+
+  // Real spend (not our token-based estimate) for every row that has an
+  // OpenAI API key id set — cached per business (5 min TTL) so paging
+  // through this list repeatedly doesn't hammer OpenAI's rate limit.
+  const realCosts = await Promise.all(rows.map((b) => getRealCostWindows(b)));
 
   return (
     <main className="space-y-5">
@@ -63,26 +69,39 @@ export default async function BusinessesPage({
               </tr>
             </thead>
             <tbody>
-              {rows.map((b) => (
-                <tr key={b.id} className="border-t border-[var(--card-border)]">
-                  <td className="py-2 pr-4 font-medium">{b.name}</td>
-                  <td className="py-2 pr-4 text-[var(--ink-soft)]">{b.slug}</td>
-                  <td className="py-2 pr-4">{b.plan}</td>
-                  <td className="py-2 pr-4">
-                    <Badge tone={b.aiMode === "live" ? "ok" : b.aiMode === "draft" ? "info" : "warn"}>{b.aiMode}</Badge>
-                  </td>
-                  <td className="py-2 pr-4">{b.selectedModel}</td>
-                  <td className="py-2 pr-4">
-                    <Badge tone={b.status === "active" ? "ok" : "neutral"}>{b.status}</Badge>
-                  </td>
-                  <td className="py-2 pr-4">{b.createdAt.toISOString().slice(0, 10)}</td>
-                  <td className="py-2 pr-4">
-                    <Link href={`/admin/businesses/${b.id}`} className="text-sky-600 hover:underline">
-                      Open →
-                    </Link>
-                  </td>
-                </tr>
-              ))}
+              {rows.map((b, i) => {
+                const real = realCosts[i]?.allTime;
+                return (
+                  <tr key={b.id} className="border-t border-[var(--card-border)]">
+                    <td className="py-2 pr-4 font-medium">{b.name}</td>
+                    <td className="py-2 pr-4 text-[var(--ink-soft)]">{b.slug}</td>
+                    <td className="py-2 pr-4">{b.plan}</td>
+                    <td className="py-2 pr-4">
+                      <Badge tone={b.aiMode === "live" ? "ok" : b.aiMode === "draft" ? "info" : "warn"}>{b.aiMode}</Badge>
+                    </td>
+                    <td className="py-2 pr-4">{b.selectedModel}</td>
+                    <td className="py-2 pr-4">
+                      <Badge tone={b.status === "active" ? "ok" : "neutral"}>{b.status}</Badge>
+                    </td>
+                    <td className="py-2 pr-4">{b.createdAt.toISOString().slice(0, 10)}</td>
+                    <td className="py-2 pr-4">
+                      <div className="flex items-center gap-2">
+                        <Link href={`/admin/businesses/${b.id}`} className="text-sky-600 hover:underline">
+                          Open →
+                        </Link>
+                        {real?.ok && typeof real.usd === "number" && (
+                          <span
+                            title="Stvaran trošak sa OpenAI-ja, od početka (real-time, keširano 5 min)"
+                            className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700"
+                          >
+                            ${real.usd.toFixed(2)}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
               {rows.length === 0 && (
                 <tr>
                   <td colSpan={8} className="py-6 text-center text-[var(--ink-soft)]">

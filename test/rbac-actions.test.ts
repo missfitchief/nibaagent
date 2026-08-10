@@ -6,7 +6,7 @@ import * as schema from "../src/lib/db/schema";
 import { resetEnvCache } from "../src/lib/env";
 import { updateBotSettingsAction, setAiModeAction, updateBusinessSettingsAction } from "../src/lib/actions/settings";
 import { createKnowledgeAction, deleteKnowledgeAction } from "../src/lib/actions/knowledge";
-import { resolveHandoffAction, setOrderStatusAction } from "../src/lib/actions/inbox";
+import { bulkDeleteOrdersAction, deleteOrderAction, resolveHandoffAction, setOrderStatusAction } from "../src/lib/actions/inbox";
 import { telegramTestAction, testBotAction, testImageRecognitionAction } from "../src/lib/actions/tools";
 import { adminUpdateBusinessAction, resetCostTrackingAction, setOpenaiApiKeyIdAction } from "../src/lib/actions/admin";
 import { deleteBusinessAction } from "../src/lib/actions/danger";
@@ -120,6 +120,18 @@ describe("mutating actions reject viewers/agents (RBAC)", () => {
   it("setOrderStatusAction", async () => {
     await asViewer();
     await expect(setOrderStatusAction(fd({ businessId: A.business.id, id: crypto.randomUUID(), status: "confirmed" }))).rejects.toThrow(/NEXT_REDIRECT/);
+  });
+
+  it("deleteOrderAction", async () => {
+    await asViewer();
+    await expect(deleteOrderAction(fd({ businessId: A.business.id, id: crypto.randomUUID() }))).rejects.toThrow(/NEXT_REDIRECT/);
+  });
+
+  it("bulkDeleteOrdersAction", async () => {
+    await asViewer();
+    await expect(
+      bulkDeleteOrdersAction({}, fd({ businessId: A.business.id, ids: JSON.stringify([crypto.randomUUID()]) }))
+    ).rejects.toThrow(/NEXT_REDIRECT/);
   });
 
   it("testBotAction", async () => {
@@ -344,5 +356,40 @@ describe("setOpenaiApiKeyIdAction: platform-admin-only", () => {
     await setOpenaiApiKeyIdAction(fd({ businessId: A.business.id, openaiApiKeyId: "  key_starlight_1  " }));
     const biz = (await db.select().from(schema.businesses).where(eq(schema.businesses.id, A.business.id)))[0];
     expect(biz.openaiApiKeyId).toBe("key_starlight_1");
+  });
+});
+
+describe("bulkDeleteOrdersAction: select-all / multi-select delete", () => {
+  it("permanently removes exactly the selected orders — a real DELETE, not a status flag", async () => {
+    await asOwner();
+    const inserted = await db
+      .insert(schema.orders)
+      .values([
+        { businessId: A.business.id, customerName: "Keep Me" },
+        { businessId: A.business.id, customerName: "Delete Me 1" },
+        { businessId: A.business.id, customerName: "Delete Me 2" }
+      ])
+      .returning({ id: schema.orders.id });
+    const [keep, del1, del2] = inserted;
+
+    const result = await bulkDeleteOrdersAction({}, fd({ businessId: A.business.id, ids: JSON.stringify([del1.id, del2.id]) }));
+    expect(result.ok).toBe(true);
+    expect(result.deleted).toBe(2);
+
+    const remaining = await db.select().from(schema.orders).where(eq(schema.orders.businessId, A.business.id));
+    expect(remaining.map((o) => o.id)).toEqual([keep.id]);
+  });
+
+  it("never deletes another business's orders, even if their id is passed", async () => {
+    await asOwner();
+    const B = await seedBusiness(db, "Beta-orders");
+    const [foreign] = await db.insert(schema.orders).values({ businessId: B.business.id, customerName: "Not yours" }).returning({ id: schema.orders.id });
+
+    const result = await bulkDeleteOrdersAction({}, fd({ businessId: A.business.id, ids: JSON.stringify([foreign.id]) }));
+    expect(result.ok).toBe(true);
+    expect(result.deleted).toBe(0); // matched nothing under A's businessId scope
+
+    const stillThere = await db.select().from(schema.orders).where(eq(schema.orders.id, foreign.id));
+    expect(stillThere).toHaveLength(1);
   });
 });

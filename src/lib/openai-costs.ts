@@ -105,6 +105,8 @@ export interface RealCostWindows {
   daily: OpenAiCostResult;
   weekly: OpenAiCostResult;
   monthly: OpenAiCostResult;
+  /** Since the beginning — "how much has this business actually spent so far". */
+  allTime: OpenAiCostResult;
 }
 
 interface RealCostCache {
@@ -138,12 +140,13 @@ export async function getRealCostWindows(
   const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-  const [daily, weekly, monthly] = await Promise.all([
+  const [daily, weekly, monthly, allTime] = await Promise.all([
     fetchRealOpenAiCost(business.openaiApiKeyId, dayAgo, now, costsFetch),
     fetchRealOpenAiCost(business.openaiApiKeyId, weekAgo, now, costsFetch),
-    fetchRealOpenAiCost(business.openaiApiKeyId, monthAgo, now, costsFetch)
+    fetchRealOpenAiCost(business.openaiApiKeyId, monthAgo, now, costsFetch),
+    fetchRealOpenAiCost(business.openaiApiKeyId, new Date(0), now, costsFetch)
   ]);
-  const windows: RealCostWindows = { daily, weekly, monthly };
+  const windows: RealCostWindows = { daily, weekly, monthly, allTime };
   await db()
     .update(businesses)
     .set({ realCostCache: { fetchedAt: now.toISOString(), windows } as unknown as Record<string, unknown> })
