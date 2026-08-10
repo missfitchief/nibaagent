@@ -1,12 +1,9 @@
 "use client";
 
 import { useRef, useState } from "react";
+import type { DailyPoint } from "./daily-series";
 
-export interface DailyPoint {
-  day: string; // "YYYY-MM-DD"
-  total: number;
-  ai: number;
-}
+export type { DailyPoint };
 
 // Validated pair (node scripts/validate_palette.js — all checks pass, light mode):
 // sky-600 for AI replies, violet-600 for all messages. Fixed, categorical — never cycled.

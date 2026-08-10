@@ -32,15 +32,14 @@ import { IngestPanel } from "@/app/app/knowledge/ingest";
 import { WebsiteKnowledgeForm } from "@/app/app/knowledge/website";
 import { listMembers, removeMemberAction } from "@/lib/actions/members";
 import { deleteProductAction, toggleProductAction } from "@/lib/actions/products";
-import { deleteOrderAction, resolveHandoffAction, setOrderStatusAction } from "@/lib/actions/inbox";
+import { resolveHandoffAction } from "@/lib/actions/inbox";
 import { analyzeOldChatsAction } from "@/lib/actions/tools";
 import {
   archiveBusinessAction,
   clearTestConversationsAction,
   disconnectChannelsAction,
   pauseBusinessAction,
-  resetBotStateAction,
-  setOrderNoteAction
+  resetBotStateAction
 } from "@/lib/actions/danger";
 import { Badge, Card, Stat } from "@/components/ui";
 import { ProductForm } from "@/app/app/products/form";
@@ -48,6 +47,9 @@ import { ImportPanel } from "@/app/app/products/import-panel";
 import { InviteForm } from "@/app/app/team/form";
 import { SecretsPanel } from "@/app/app/settings/secrets";
 import { AdminBusinessForm, DeleteBusinessForm, ImageRecognitionTest, ManualConnectionForm, MoveConnectionButton, TelegramTestButton, TestConnectionButton } from "./forms";
+import { AdminOrdersPanel } from "./orders-panel";
+import { MessagesChart } from "@/app/app/analytics/messages-chart";
+import { fillDailySeries } from "@/app/app/analytics/daily-series";
 import type { BusinessHours } from "@/lib/hours";
 import { metaConfigCheck } from "@/lib/meta-check";
 import { MetaCheckPanel } from "@/components/meta-check-panel";
@@ -181,7 +183,6 @@ export default async function AdminBusinessDetail({
   // Connect button enables when Meta is configured in /admin/settings.
   const metaCheck = tab === "channels" ? await metaConfigCheck() : null;
   const metaConfigured = metaCheck?.ready ?? false;
-  const dailyMax = Math.max(1, ...daily.map((r) => r.total));
 
   return (
     <main className="space-y-5">
@@ -527,34 +528,8 @@ export default async function AdminBusinessDetail({
           {orderRows.length === 0 ? (
             <p className="mt-2 text-sm text-[var(--ink-soft)]">No orders.</p>
           ) : (
-            <div className="mt-3 space-y-2">
-              {orderRows.map((o) => (
-                <div key={o.id} className="rounded-lg border border-[var(--card-border)] bg-white/60 p-3 text-sm">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="font-medium">{o.customerName || "—"} · {o.city || "—"}</span>
-                    <form action={setOrderStatusAction} className="flex items-center gap-1.5">
-                      <input type="hidden" name="businessId" value={biz.id} />
-                      <input type="hidden" name="id" value={o.id} />
-                      <select name="status" defaultValue={o.status} className="rounded-lg border border-[var(--card-border)] bg-white px-2 py-1 text-xs">
-                        {["new", "confirmed", "shipped", "done", "cancelled"].map((s) => <option key={s} value={s}>{s}</option>)}
-                      </select>
-                      <button className="rounded-lg border border-[var(--card-border)] bg-white px-2 py-1 text-xs">Set</button>
-                    </form>
-                    <form action={deleteOrderAction}>
-                      <input type="hidden" name="businessId" value={biz.id} />
-                      <input type="hidden" name="id" value={o.id} />
-                      <button className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700 hover:bg-rose-100">Delete</button>
-                    </form>
-                  </div>
-                  <p className="mt-1 text-[var(--ink-soft)]">{o.orderText || "—"}</p>
-                  <form action={setOrderNoteAction} className="mt-2 flex gap-1.5">
-                    <input type="hidden" name="businessId" value={biz.id} />
-                    <input type="hidden" name="orderId" value={o.id} />
-                    <input name="note" defaultValue={o.internalNote} placeholder="Internal note" className="w-full rounded-lg border border-[var(--card-border)] bg-white px-2 py-1 text-xs" />
-                    <button className="rounded-lg border border-[var(--card-border)] bg-white px-2 py-1 text-xs">Save note</button>
-                  </form>
-                </div>
-              ))}
+            <div className="mt-3">
+              <AdminOrdersPanel businessId={biz.id} rows={orderRows} />
             </div>
           )}
         </Card>
@@ -566,13 +541,8 @@ export default async function AdminBusinessDetail({
           {daily.length === 0 ? (
             <p className="mt-2 text-sm text-[var(--ink-soft)]">No message activity in the last 30 days.</p>
           ) : (
-            <div className="mt-4 flex h-40 items-end gap-1">
-              {daily.map((r) => (
-                <div key={r.day} className="group relative flex-1" title={`${r.day}: ${r.total} msgs, ${r.ai} AI`}>
-                  <div className="w-full rounded-t bg-sky-200" style={{ height: `${(r.total / dailyMax) * 100}%`, minHeight: 2 }} />
-                  <div className="absolute bottom-0 w-full rounded-t bg-gradient-to-t from-sky-500 to-cyan-400" style={{ height: `${(r.ai / dailyMax) * 100}%` }} />
-                </div>
-              ))}
+            <div className="mt-4">
+              <MessagesChart daily={fillDailySeries(daily)} />
             </div>
           )}
           <p className="mt-3 text-sm text-[var(--ink-soft)]">Totals: {msg?.n ?? 0} messages · {msg?.ai ?? 0} AI replies · {orderCount?.n ?? 0} orders · est. saved €{savings.savedEur}.</p>

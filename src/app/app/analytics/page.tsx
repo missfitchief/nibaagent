@@ -5,18 +5,8 @@ import { handoffs, messages, orders } from "@/lib/db/schema";
 import { ownBusiness, requireUser } from "@/lib/auth/guards";
 import { estimateSavings } from "@/lib/plans";
 import { Card, Stat } from "@/components/ui";
-import { MessagesChart, type DailyPoint } from "./messages-chart";
-
-/** Every day in the last N days (oldest first), as "YYYY-MM-DD" (UTC). */
-function last30Days(): string[] {
-  const out: string[] = [];
-  const today = new Date();
-  for (let i = 29; i >= 0; i--) {
-    const d = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() - i));
-    out.push(d.toISOString().slice(0, 10));
-  }
-  return out;
-}
+import { MessagesChart } from "./messages-chart";
+import { fillDailySeries } from "./daily-series";
 
 export default async function AnalyticsPage() {
   const user = await requireUser();
@@ -46,15 +36,7 @@ export default async function AnalyticsPage() {
   const [handoffCount] = await d.select({ n: sql<number>`count(*)::int` }).from(handoffs).where(eq(handoffs.businessId, business.id));
   const savings = estimateSavings(aiTotal?.n ?? 0);
 
-  // The line chart needs a CONTINUOUS daily series — the query above only
-  // returns days that had at least one message, so a quiet day would
-  // otherwise just be missing (silently compressing the timeline) instead
-  // of showing as a real dip to zero.
-  const byDay = new Map(daily.map((r) => [r.day, r]));
-  const series: DailyPoint[] = last30Days().map((day) => {
-    const r = byDay.get(day);
-    return { day, total: r?.total ?? 0, ai: r?.ai ?? 0 };
-  });
+  const series = fillDailySeries(daily);
   const today = series[series.length - 1];
   const yesterday = series[series.length - 2];
   const dayBefore = series[series.length - 3];

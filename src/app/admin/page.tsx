@@ -5,6 +5,7 @@ import { db } from "@/lib/db/client";
 import { businesses, eventLogs, messages, metaConnections } from "@/lib/db/schema";
 import { resolveAllErrorLogsAction } from "@/lib/actions/logs";
 import { platformAiCost30d } from "@/lib/usage";
+import { getRealCostWindows } from "@/lib/openai-costs";
 import { Badge, Card, Stat } from "@/components/ui";
 
 export default async function AdminOverview() {
@@ -40,6 +41,9 @@ export default async function AdminOverview() {
 
   const latest = await d.select().from(businesses).orderBy(desc(businesses.createdAt)).limit(8);
   const needsAttention = brokenConnections.length > 0 || (unresolvedErrors?.n ?? 0) > 0;
+  // Real spend (not the estimate) for whichever of these have an OpenAI API
+  // key id set — cached per business (5 min TTL).
+  const realCosts = await Promise.all(latest.map((b) => getRealCostWindows(b)));
 
   return (
     <main className="space-y-5">
@@ -118,23 +122,36 @@ export default async function AdminOverview() {
                 </tr>
               </thead>
               <tbody>
-                {latest.map((b) => (
-                  <tr key={b.id} className="border-t border-[var(--card-border)]">
-                    <td className="py-2 pr-4 font-medium">{b.name}</td>
-                    <td className="py-2 pr-4">{b.plan}</td>
-                    <td className="py-2 pr-4">
-                      <Badge tone={b.aiMode === "live" ? "ok" : b.aiMode === "draft" ? "info" : "warn"}>{b.aiMode}</Badge>
-                    </td>
-                    <td className="py-2 pr-4">
-                      <Badge tone={b.status === "active" ? "ok" : "neutral"}>{b.status}</Badge>
-                    </td>
-                    <td className="py-2 pr-4">
-                      <Link href={`/admin/businesses/${b.id}`} className="text-sky-600 hover:underline">
-                        Open →
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
+                {latest.map((b, i) => {
+                  const real = realCosts[i]?.allTime;
+                  return (
+                    <tr key={b.id} className="border-t border-[var(--card-border)]">
+                      <td className="py-2 pr-4 font-medium">{b.name}</td>
+                      <td className="py-2 pr-4">{b.plan}</td>
+                      <td className="py-2 pr-4">
+                        <Badge tone={b.aiMode === "live" ? "ok" : b.aiMode === "draft" ? "info" : "warn"}>{b.aiMode}</Badge>
+                      </td>
+                      <td className="py-2 pr-4">
+                        <Badge tone={b.status === "active" ? "ok" : "neutral"}>{b.status}</Badge>
+                      </td>
+                      <td className="py-2 pr-4">
+                        <div className="flex items-center gap-2">
+                          <Link href={`/admin/businesses/${b.id}`} className="text-sky-600 hover:underline">
+                            Open →
+                          </Link>
+                          {real?.ok && typeof real.usd === "number" && (
+                            <span
+                              title="Stvaran trošak sa OpenAI-ja, od početka (real-time, keširano 5 min)"
+                              className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700"
+                            >
+                              ${real.usd.toFixed(2)}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
