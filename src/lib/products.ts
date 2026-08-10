@@ -246,6 +246,31 @@ export async function deleteVariant(businessId: string, variantId: string): Prom
   await db().delete(productVariants).where(and(eq(productVariants.id, variantId), eq(productVariants.businessId, businessId)));
 }
 
+/**
+ * Replace ALL of a product's variants with a fresh set — used by the shop-URL
+ * importer, where the source (e.g. Shopify) is the source of truth for
+ * per-color/size stock and a re-scan should fully sync it, not just append.
+ */
+export async function replaceVariants(businessId: string, productId: string, inputs: VariantInput[]): Promise<void> {
+  if (!(await productBelongs(businessId, productId))) return;
+  await db().delete(productVariants).where(and(eq(productVariants.productId, productId), eq(productVariants.businessId, businessId)));
+  if (!inputs.length) return;
+  await db()
+    .insert(productVariants)
+    .values(
+      inputs.map((input) => ({
+        businessId,
+        productId,
+        name: input.name.trim(),
+        price: input.price == null ? null : String(input.price),
+        sku: input.sku ?? "",
+        color: input.color ?? "",
+        size: input.size ?? "",
+        stockStatus: input.stockStatus ?? "unknown"
+      }))
+    );
+}
+
 /** Variants for a set of products, business-scoped, keyed by productId. */
 export async function variantsFor(businessId: string, productIds: string[]): Promise<Map<string, (typeof productVariants.$inferSelect)[]>> {
   const map = new Map<string, (typeof productVariants.$inferSelect)[]>();

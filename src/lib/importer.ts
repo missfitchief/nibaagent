@@ -2,7 +2,7 @@ import "server-only";
 import { eq } from "drizzle-orm";
 import { db } from "./db/client";
 import { products } from "./db/schema";
-import { createProduct, updateProduct, addProductImage, type ProductInput } from "./products";
+import { createProduct, updateProduct, addProductImage, replaceVariants, type ProductInput } from "./products";
 import type { StockStatus } from "./db/schema";
 
 /**
@@ -21,6 +21,16 @@ import type { StockStatus } from "./db/schema";
 
 export type ImportSource = "shopify" | "jsonld" | "woocommerce" | "html";
 
+/** One purchasable variant (e.g. one color/size combo) with its OWN stock. */
+export interface ScannedVariant {
+  name: string;
+  color?: string;
+  size?: string;
+  price?: number | null;
+  sku?: string;
+  stockStatus: StockStatus;
+}
+
 export interface ScannedProduct {
   title: string;
   description?: string;
@@ -33,6 +43,14 @@ export interface ScannedProduct {
   tags?: string[];
   colors?: string[];
   sizes?: string[];
+  /**
+   * Per-variant breakdown, when the source distinguishes more than one
+   * (Shopify's own product.variants[] already tracks stock PER color/size —
+   * collapsing that into one rolled-up product-level status, as this used
+   * to do, throws away exactly the fact a customer needs when they ask "do
+   * you have it in silver" for a product where only some colors sold out.
+   */
+  variants?: ScannedVariant[];
   url?: string;
   handle?: string;
   imageUrls: string[];
@@ -101,6 +119,7 @@ export function dedupeKey(p: { url?: string; handle?: string; sku?: string; titl
 // ---------------------------------------------------------------------------
 
 interface ShopifyVariant {
+  title?: string;
   price?: string | number;
   sku?: string;
   available?: boolean;
@@ -133,10 +152,33 @@ export function parseShopify(json: unknown, origin: string): ScannedProduct[] {
     const qtys = variants.map((v) => v.inventory_quantity).filter((q): q is number => typeof q === "number");
     const stockQuantity = qtys.length === variants.length && variants.length > 0 ? qtys.reduce((a, b) => a + b, 0) : null;
 
+    const options = p.options ?? [];
     const optByName = (needle: RegExp): string[] => {
-      const opt = (p.options ?? []).find((o) => needle.test(String(o.name ?? "")));
+      const opt = options.find((o) => needle.test(String(o.name ?? "")));
       return (opt?.values ?? []).map((v) => String(v)).filter(Boolean);
     };
+    const colorIdx = options.findIndex((o) => /colou?r|boja/i.test(String(o.name ?? "")));
+    const sizeIdx = options.findIndex((o) => /size|velicin|broj/i.test(String(o.name ?? "")));
+    const optValue = (v: ShopifyVariant, idx: number): string | undefined => {
+      if (idx < 0) return undefined;
+      const key = (["option1", "option2", "option3"] as const)[idx];
+      const val = v[key];
+      return val ? String(val) : undefined;
+    };
+    // A single-variant product is Shopify's "Default Title" placeholder, not
+    // a real color/size split — only keep per-variant rows when there's an
+    // actual choice to make (and so a stock difference to report).
+    const scannedVariants: ScannedVariant[] =
+      variants.length > 1
+        ? variants.map((v) => ({
+            name: v.title || [v.option1, v.option2, v.option3].filter(Boolean).join(" / ") || "Variant",
+            color: optValue(v, colorIdx),
+            size: optValue(v, sizeIdx),
+            price: num(v.price),
+            sku: v.sku ?? "",
+            stockStatus: v.available === true ? "available" : v.available === false ? "unavailable" : "unknown"
+          }))
+        : [];
     const tags = Array.isArray(p.tags) ? p.tags.map(String) : String(p.tags ?? "").split(",").map((t) => t.trim()).filter(Boolean);
 
     return {
@@ -150,6 +192,7 @@ export function parseShopify(json: unknown, origin: string): ScannedProduct[] {
       tags,
       colors: optByName(/colou?r|boja/i),
       sizes: optByName(/size|velicin|broj/i),
+      variants: scannedVariants,
       url: p.handle ? `${origin}/products/${p.handle}` : "",
       handle: p.handle,
       imageUrls: (p.images ?? []).map((i) => String(i.src ?? "")).filter(Boolean)
@@ -435,14 +478,29 @@ export async function importScanned(businessId: string, scanned: ScannedProduct[
       url: p.url ?? ""
     };
     const hit = byKey.get(key);
+    let productId: string;
     if (hit) {
       await updateProduct(businessId, hit.id, input);
+      productId = hit.id;
       outcome.updated++;
     } else {
       const row = await createProduct(businessId, input);
       byKey.set(key, row);
+      productId = row.id;
       if (p.imageUrls[0]) await addProductImage(businessId, row.id, p.imageUrls[0], p.title);
       outcome.created++;
+    }
+    // Real prod bug: the importer only ever wrote ONE rolled-up stock status
+    // per product, even though Shopify tracks it per color/size — a customer
+    // asking about a specific color got answered from that blurred aggregate
+    // instead of the real per-variant fact the shop already had. Sync the
+    // scanned variants (source of truth) in full on every import/re-import.
+    if (p.variants?.length) {
+      await replaceVariants(
+        businessId,
+        productId,
+        p.variants.map((v) => ({ name: v.name, price: v.price ?? null, sku: v.sku ?? "", color: v.color ?? "", size: v.size ?? "", stockStatus: v.stockStatus }))
+      );
     }
   }
   outcome.log.push(`created ${outcome.created}, updated ${outcome.updated}, skipped ${outcome.skipped}`);

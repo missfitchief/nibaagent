@@ -29,6 +29,15 @@ export async function scanProductsAction(_prev: ScanState, formData: FormData): 
   return { ok: scan.ok, error: scan.ok ? undefined : scan.error, scan };
 }
 
+const ScannedVariantSchema = z.object({
+  name: z.string().max(200),
+  color: z.string().max(80).optional(),
+  size: z.string().max(80).optional(),
+  price: z.number().nullable().optional(),
+  sku: z.string().max(120).optional(),
+  stockStatus: z.enum(STOCK_STATUSES)
+});
+
 // A scanned product coming back from the preview form (client-serialized JSON).
 const ScannedSchema = z.object({
   title: z.string().min(1).max(300),
@@ -42,6 +51,7 @@ const ScannedSchema = z.object({
   tags: z.array(z.string()).optional(),
   colors: z.array(z.string()).optional(),
   sizes: z.array(z.string()).optional(),
+  variants: z.array(ScannedVariantSchema).max(100).optional(),
   url: z.string().max(600).optional(),
   handle: z.string().max(200).optional(),
   imageUrls: z.array(z.string()).default([])

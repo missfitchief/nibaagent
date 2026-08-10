@@ -10,7 +10,7 @@ import {
   importScanned,
   type ScannedProduct
 } from "../src/lib/importer";
-import { listProducts } from "../src/lib/products";
+import { listProducts, variantsFor } from "../src/lib/products";
 
 describe("importer parsers (pure)", () => {
   it("parseShopify maps fields and stock (available/unavailable/unknown)", () => {
@@ -53,6 +53,43 @@ describe("importer parsers (pure)", () => {
     expect(out[1].stockStatus).toBe("unavailable");
     expect(out[2].stockStatus).toBe("unknown"); // stays unknown when source is silent
     expect(out[2].stockQuantity).toBeNull();
+  });
+
+  it("parseShopify keeps each variant's OWN stock — a real prod bug", () => {
+    // Real prod bug: a customer asked "do you have it in silver" for a
+    // necklace and the bot confidently said no — but Shopify's own data
+    // (variants[].available) already knew silver was in stock; the old
+    // parser only ever rolled every variant up into ONE product-level
+    // status ("any variant in stock" → whole product reads "available"),
+    // discarding exactly which color that applied to.
+    const json = {
+      products: [
+        {
+          title: "Mama ogrlica",
+          handle: "mama-ogrlica",
+          options: [{ name: "Boja", values: ["Zlatna", "Srebrna"] }],
+          variants: [
+            { title: "Zlatna", price: "45.90", sku: "MO-Z", available: false, option1: "Zlatna" },
+            { title: "Srebrna", price: "45.90", sku: "MO-S", available: true, option1: "Srebrna" }
+          ]
+        },
+        {
+          // Shopify's "Default Title" single-variant case — no real
+          // color/size split, so no per-variant rows are worth creating.
+          title: "Simple Ring",
+          handle: "simple-ring",
+          variants: [{ price: "10", available: true }]
+        }
+      ]
+    };
+    const out = parseShopify(json, "https://shop.example");
+    const necklace = out[0];
+    expect(necklace.variants).toHaveLength(2);
+    expect(necklace.variants).toContainEqual(expect.objectContaining({ name: "Zlatna", color: "Zlatna", stockStatus: "unavailable" }));
+    expect(necklace.variants).toContainEqual(expect.objectContaining({ name: "Srebrna", color: "Srebrna", stockStatus: "available" }));
+    // Product-level status stays the existing rolled-up behavior (unchanged).
+    expect(necklace.stockStatus).toBe("available");
+    expect(out[1].variants).toEqual([]);
   });
 
   it("parseJsonLd reads Product with offers + availability", () => {
@@ -164,6 +201,47 @@ describe("importScanned (create/update/dedup, stock-unknown stays unknown)", () 
     expect(ring.title).toBe("Ring v2");
     expect(Number(ring.price)).toBe(15);
     expect(ring.stockStatus).toBe("unknown"); // never fabricated
+  });
+
+  it("imports scanned variants as real productVariants rows, with their own stock", async () => {
+    const outcome = await importScanned(A.business.id, [
+      mk({
+        title: "Mama ogrlica",
+        url: "https://a/p/mama",
+        price: 45.9,
+        stockStatus: "available",
+        variants: [
+          { name: "Zlatna", color: "Zlatna", price: 45.9, sku: "MO-Z", stockStatus: "unavailable" },
+          { name: "Srebrna", color: "Srebrna", price: 45.9, sku: "MO-S", stockStatus: "available" }
+        ]
+      })
+    ]);
+    expect(outcome.created).toBe(1);
+    const rows = await listProducts(A.business.id);
+    const product = rows.find((r) => r.url === "https://a/p/mama")!;
+    const variantMap = await variantsFor(A.business.id, [product.id]);
+    const variants = variantMap.get(product.id) ?? [];
+    expect(variants).toHaveLength(2);
+    expect(variants.find((v) => v.color === "Srebrna")?.stockStatus).toBe("available");
+    expect(variants.find((v) => v.color === "Zlatna")?.stockStatus).toBe("unavailable");
+
+    // Re-import (e.g. silver sold out since the last scan) fully SYNCS,
+    // not appends — the source is the source of truth.
+    await importScanned(A.business.id, [
+      mk({
+        title: "Mama ogrlica",
+        url: "https://a/p/mama",
+        price: 45.9,
+        stockStatus: "unavailable",
+        variants: [
+          { name: "Zlatna", color: "Zlatna", price: 45.9, sku: "MO-Z", stockStatus: "unavailable" },
+          { name: "Srebrna", color: "Srebrna", price: 45.9, sku: "MO-S", stockStatus: "unavailable" }
+        ]
+      })
+    ]);
+    const resynced = (await variantsFor(A.business.id, [product.id])).get(product.id) ?? [];
+    expect(resynced).toHaveLength(2); // no duplicates from the re-import
+    expect(resynced.every((v) => v.stockStatus === "unavailable")).toBe(true);
   });
 
   it("is business-scoped: B never sees A's imports", async () => {

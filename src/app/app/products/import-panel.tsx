@@ -65,7 +65,12 @@ function PreviewTable({ businessId, origin, products }: { businessId: string; or
                   {p.url && <div className="truncate text-[11px] text-[var(--ink-soft)]">{p.url}</div>}
                 </td>
                 <td className="p-2 whitespace-nowrap">{p.price == null ? "—" : `${p.price} ${p.currency ?? ""}`}</td>
-                <td className="p-2">{stockBadge(p.stockStatus)}</td>
+                <td className="p-2">
+                  {stockBadge(p.stockStatus)}
+                  {p.variants?.length ? (
+                    <div className="mt-0.5 text-[11px] text-[var(--ink-soft)]">{p.variants.length} variants, own stock each</div>
+                  ) : null}
+                </td>
                 <td className="p-2 text-xs">{p.sku || "—"}</td>
               </tr>
             ))}
