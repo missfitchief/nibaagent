@@ -92,6 +92,33 @@ describe("importer parsers (pure)", () => {
     expect(out[1].variants).toEqual([]);
   });
 
+  it("works the same for a numeric SIZE option, not just color — e.g. shoe sizes (\"broj\")", () => {
+    // Generalization the owner explicitly asked about: a sneaker business
+    // needs per-size stock the same way a jewelry business needs per-color
+    // stock. The option-name match already covers "broj" (Serbian for shoe
+    // size) alongside "size"/"velicina" — same code path, no special case.
+    const json = {
+      products: [
+        {
+          title: "Patike Model X",
+          handle: "patike-model-x",
+          options: [{ name: "Broj", values: ["42", "43", "44"] }],
+          variants: [
+            { title: "42", price: "89.90", sku: "PX-42", available: true, option1: "42" },
+            { title: "43", price: "89.90", sku: "PX-43", available: false, option1: "43" },
+            { title: "44", price: "89.90", sku: "PX-44", available: true, option1: "44" }
+          ]
+        }
+      ]
+    };
+    const out = parseShopify(json, "https://shop.example");
+    const sneaker = out[0];
+    expect(sneaker.variants).toHaveLength(3);
+    expect(sneaker.variants).toContainEqual(expect.objectContaining({ name: "42", size: "42", stockStatus: "available" }));
+    expect(sneaker.variants).toContainEqual(expect.objectContaining({ name: "43", size: "43", stockStatus: "unavailable" }));
+    expect(sneaker.variants).toContainEqual(expect.objectContaining({ name: "44", size: "44", stockStatus: "available" }));
+  });
+
   it("parseJsonLd reads Product with offers + availability", () => {
     const script = JSON.stringify({
       "@context": "https://schema.org",
