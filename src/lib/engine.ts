@@ -144,6 +144,15 @@ export function detectOrderIntent(message: string): boolean {
 }
 
 /**
+ * A real question riding along with bare order intent ("da li može i koliko
+ * je sa dostavom?") — a "?" or a common question word/phrase. Used to decide
+ * whether the FIRST order-collection reply should be the static "send us
+ * your details" template (no question attached) or fall through to the AI
+ * so it answers what was actually asked first.
+ */
+const QUESTION_HINT_RE = /\?|da ?li|kolik|cij?en|mo(z|ž)e li|kada|ima ?li|koji|koja|koje/i;
+
+/**
  * Greetings/farewells/fillers that are NOT city names — a bare capitalized
  * word with no digits (e.g. a customer just saying "Živeli"/"Pozdrav" to sign
  * off) must never be mistaken for a city by looseOrderFields() below. This bit
@@ -685,9 +694,24 @@ export async function runEngine(businessId: string, message: string, opts: Engin
 
     if (order.active && !order.completed && orderRelevantNow) {
       let reply: string;
-      if (!order.customerName && !order.phone && !order.streetAndNumber && !order.city && !order.postalCode) {
-        // Nothing known yet → the classic full collection prompt.
+      // Real prod bug: a customer's FIRST message combined order intent with
+      // a real question ("da li može i koliko je sa dostavom?") — the static
+      // "nothing known yet" template fired unconditionally and completely
+      // ignored the question, jumping straight to "send your details" as if
+      // she'd said nothing else. When the message carries an actual question
+      // alongside bare intent, persist the order state and fall through to
+      // the grounded AI instead of returning a canned reply here — it can
+      // answer what she asked AND ask for the missing fields (via
+      // orderSteerNote below), instead of a robotic non-answer.
+      const nothingKnownYet = !order.customerName && !order.phone && !order.streetAndNumber && !order.city && !order.postalCode;
+      const fallThroughToAi = nothingKnownYet && QUESTION_HINT_RE.test(norm(message));
+      if (fallThroughToAi) {
+        await updateConversationState(businessId, convo.id, { order });
+        convoState = { ...convoState, order };
+      } else if (nothingKnownYet) {
+        // Nothing known yet, no real question attached → the classic full collection prompt.
         reply = orderCollectionReply(lang, formal, settings?.orderPrompt ?? "", sawProductInImage);
+        return persistReply(withSend({ ...base, intent: "order", orderTriggered: true, reply }), { order });
       } else {
         const missing = missingOrderFields(order);
         if (missing.length > 0) {
@@ -768,8 +792,11 @@ export async function runEngine(businessId: string, message: string, opts: Engin
           }
           reply = orderConfirmReply(lang, formal, order);
         }
+        return persistReply(withSend({ ...base, intent: "order", orderTriggered: true, reply }), { order });
       }
-      return persistReply(withSend({ ...base, intent: "order", orderTriggered: true, reply }), { order });
+      // fallThroughToAi: no early return — continues past this whole order
+      // block down to step 4 (grounded AI), which now sees the freshly
+      // persisted order state via convoState/knownOrderNote/orderSteerNote.
     }
   } else if (orderWanted && !convo && detectOrderIntent(message)) {
     // Legacy stateless path (no sender identified): original one-shot prompt.
@@ -953,6 +980,7 @@ export async function runEngine(businessId: string, message: string, opts: Engin
     adNote,
     "NEVER invent prices, stock, delivery terms or product facts. A price belongs to ONE specific product — if the customer is now asking about a different item than whichever one a price was quoted for earlier in this conversation, do NOT reuse that earlier number. Only state a price that is for the CURRENT item and is explicitly listed in PRODUCTS below. If the current item isn't clearly one of the products below, say the team will check and reply soon instead of guessing.",
     "This rule applies EQUALLY to customization/variant questions (personalization, engraving a name, finish/color options, how many charms, materials) — both confirming something IS possible and claiming something is NOT possible are equally invented if it is not explicitly stated in PRODUCTS/BUSINESS INFO/FAQ below. Never say a feature isn't offered just because you don't see it listed — the product's own title/description may already confirm it, so read them carefully first. If it genuinely isn't confirmed either way, say the team will check, instead of confidently answering yes OR no. Never claim 'the team confirmed' something — you have not spoken to anyone; only state it if it is written in the data below. When a product lists variants below, each one states ITS OWN stock in parentheses — a customer asking about one specific color/size is asking about THAT variant's own status, not the product's general stock line above it.",
+    "If a photo the customer sent shows PEOPLE (a face, a portrait, a photo of children, etc.) rather than a piece of jewelry itself, do NOT say the picture 'isn't jewelry' or reject it — re-read the conversation first. A customer who has asked about an engraved/personalized item and then sends a photo of people is sending REFERENCE material for that engraving, exactly as asked. Acknowledge it warmly (e.g. 'Super, primili smo sliku za gravuru!') and continue with the order, never treat it as an invalid or unrelated image.",
     settings?.customInstructions ? `Business rules: ${settings.customInstructions.slice(0, 800)}` : "",
     summary,
     productData ? `PRODUCTS (authoritative — prices/stock/colors come from here, never invent):\n${productData}` : "",

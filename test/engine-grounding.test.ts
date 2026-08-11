@@ -160,6 +160,61 @@ describe("no confident/denied claims beyond what's grounded", () => {
   });
 });
 
+describe("order intent + a real question in the same first message", () => {
+  it("answers the question via the AI instead of the static collection template when nothing is known yet", async () => {
+    // Real prod bug, seen live: a customer's very first message was
+    // "...željela bih da naručim 'zlatni' medaljon sa ugraviranom slikom
+    // dječaka i djevojčice... Da li Može i koliko je sa dostavom?" — a real
+    // question (is it possible, what's the price with delivery) riding
+    // along with order intent. The bot's ONLY reply was the static "send us
+    // your details" collection template, completely ignoring the question,
+    // both on this message and again after she sent reference photos.
+    const { business } = await seedBusiness(db, "Nakit shop 5");
+    await db.update(schema.businesses).set({ aiMode: "live", defaultLanguage: "sr" }).where(eq(schema.businesses.id, business.id));
+    await db.insert(schema.products).values({
+      businessId: business.id,
+      title: "Medaljon sa slikom",
+      description: "Ugravirana slika po želji.",
+      price: "38.90",
+      currency: "BAM",
+      stockStatus: "available"
+    });
+
+    let systemSeen = "";
+    let aiCalled = false;
+    const result = await runEngine(
+      business.id,
+      "Poštovani željela bih da naručim \"zlatni\" medaljon sa ugraviranom slikom dječaka i djevojčice a na pozadini natpis \"duše moje\".Da li Može i koliko je sa dostavom?",
+      {
+        conversation: { channel: "facebook", senderId: "cust-question-order" },
+        chatCompletion: async (input) => {
+          aiCalled = true;
+          systemSeen = input.system;
+          return { text: "Da, možemo! Cena sa dostavom je 48.90 BAM. Za porudžbinu nam pošaljite ime, adresu i telefon.", tokens: 10 };
+        }
+      }
+    );
+    expect(aiCalled).toBe(true);
+    expect(result.reply).not.toMatch(/^Super! Za porudžbinu nam pošaljite/i);
+    // The AI must see that an order is already in progress with everything missing.
+    expect(systemSeen).toMatch(/ORDER IN PROGRESS/i);
+    expect(systemSeen).toMatch(/ime i prezime/i);
+  });
+
+  it("still uses the fast static template when there's bare intent and no question", async () => {
+    const { business } = await seedBusiness(db, "Nakit shop 6");
+    await db.update(schema.businesses).set({ aiMode: "live", defaultLanguage: "sr" }).where(eq(schema.businesses.id, business.id));
+
+    const result = await runEngine(business.id, "Zelim da naručim narukvicu", {
+      conversation: { channel: "facebook", senderId: "cust-bare-intent" },
+      chatCompletion: async () => {
+        throw new Error("AI should not be called for bare order intent with no question");
+      }
+    });
+    expect(result.reply).toMatch(/Za porudžbinu nam pošaljite/i);
+  });
+});
+
 describe("vision-attached prompt", () => {
   it("tells the model to ignore any person in the photo and focus on the product", async () => {
     const { business } = await seedBusiness(db, "Nakit shop");

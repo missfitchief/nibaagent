@@ -6,7 +6,14 @@ import * as schema from "../src/lib/db/schema";
 import { resetEnvCache } from "../src/lib/env";
 import { updateBotSettingsAction, setAiModeAction, updateBusinessSettingsAction } from "../src/lib/actions/settings";
 import { createKnowledgeAction, deleteKnowledgeAction } from "../src/lib/actions/knowledge";
-import { bulkDeleteOrdersAction, deleteOrderAction, resolveHandoffAction, setOrderStatusAction } from "../src/lib/actions/inbox";
+import {
+  bulkDeleteConversationsAction,
+  bulkDeleteHandoffsAction,
+  bulkDeleteOrdersAction,
+  deleteOrderAction,
+  resolveHandoffAction,
+  setOrderStatusAction
+} from "../src/lib/actions/inbox";
 import { telegramTestAction, testBotAction, testImageRecognitionAction } from "../src/lib/actions/tools";
 import { adminUpdateBusinessAction, resetCostTrackingAction, setOpenaiApiKeyIdAction } from "../src/lib/actions/admin";
 import { deleteBusinessAction } from "../src/lib/actions/danger";
@@ -131,6 +138,20 @@ describe("mutating actions reject viewers/agents (RBAC)", () => {
     await asViewer();
     await expect(
       bulkDeleteOrdersAction({}, fd({ businessId: A.business.id, ids: JSON.stringify([crypto.randomUUID()]) }))
+    ).rejects.toThrow(/NEXT_REDIRECT/);
+  });
+
+  it("bulkDeleteConversationsAction", async () => {
+    await asViewer();
+    await expect(
+      bulkDeleteConversationsAction({}, fd({ businessId: A.business.id, ids: JSON.stringify([crypto.randomUUID()]) }))
+    ).rejects.toThrow(/NEXT_REDIRECT/);
+  });
+
+  it("bulkDeleteHandoffsAction", async () => {
+    await asViewer();
+    await expect(
+      bulkDeleteHandoffsAction({}, fd({ businessId: A.business.id, ids: JSON.stringify([crypto.randomUUID()]) }))
     ).rejects.toThrow(/NEXT_REDIRECT/);
   });
 
@@ -391,5 +412,72 @@ describe("bulkDeleteOrdersAction: select-all / multi-select delete", () => {
 
     const stillThere = await db.select().from(schema.orders).where(eq(schema.orders.id, foreign.id));
     expect(stillThere).toHaveLength(1);
+  });
+});
+
+describe("bulkDeleteHandoffsAction: select-all / multi-select delete", () => {
+  it("permanently removes exactly the selected handoff records", async () => {
+    await asOwner();
+    const inserted = await db
+      .insert(schema.handoffs)
+      .values([
+        { businessId: A.business.id, reason: "Keep" },
+        { businessId: A.business.id, reason: "Delete 1" },
+        { businessId: A.business.id, reason: "Delete 2" }
+      ])
+      .returning({ id: schema.handoffs.id });
+    const [keep, del1, del2] = inserted;
+
+    const result = await bulkDeleteHandoffsAction({}, fd({ businessId: A.business.id, ids: JSON.stringify([del1.id, del2.id]) }));
+    expect(result.ok).toBe(true);
+    expect(result.deleted).toBe(2);
+
+    const remaining = await db.select().from(schema.handoffs).where(eq(schema.handoffs.businessId, A.business.id));
+    expect(remaining.map((h) => h.id)).toEqual([keep.id]);
+  });
+});
+
+describe("bulkDeleteConversationsAction: cascades messages, detaches (doesn't delete) orders/handoffs", () => {
+  it("deletes the conversation and its messages, but only DETACHES referencing orders/handoffs (keeps the records)", async () => {
+    await asOwner();
+    const [convo] = await db
+      .insert(schema.conversations)
+      .values({ businessId: A.business.id, channel: "facebook", senderId: "cust-cascade-1" })
+      .returning({ id: schema.conversations.id });
+    const [keepConvo] = await db
+      .insert(schema.conversations)
+      .values({ businessId: A.business.id, channel: "facebook", senderId: "cust-cascade-keep" })
+      .returning({ id: schema.conversations.id });
+
+    await db.insert(schema.messages).values([
+      { businessId: A.business.id, conversationId: convo.id, channel: "facebook", direction: "inbound", text: "hi" },
+      { businessId: A.business.id, conversationId: convo.id, channel: "facebook", direction: "outbound", text: "hello" }
+    ]);
+    const [order] = await db
+      .insert(schema.orders)
+      .values({ businessId: A.business.id, conversationId: convo.id, customerName: "Order stays" })
+      .returning({ id: schema.orders.id });
+    const [handoff] = await db
+      .insert(schema.handoffs)
+      .values({ businessId: A.business.id, conversationId: convo.id, reason: "Handoff stays" })
+      .returning({ id: schema.handoffs.id });
+
+    const result = await bulkDeleteConversationsAction({}, fd({ businessId: A.business.id, ids: JSON.stringify([convo.id]) }));
+    expect(result.ok).toBe(true);
+    expect(result.deleted).toBe(1);
+
+    // Conversation and its messages are gone.
+    const remainingConvos = await db.select().from(schema.conversations).where(eq(schema.conversations.businessId, A.business.id));
+    expect(remainingConvos.map((c) => c.id).sort()).toEqual([keepConvo.id].sort());
+    const remainingMessages = await db.select().from(schema.messages).where(eq(schema.messages.conversationId, convo.id));
+    expect(remainingMessages).toHaveLength(0);
+
+    // Order and handoff records themselves are KEPT, just detached.
+    const [orderRow] = await db.select().from(schema.orders).where(eq(schema.orders.id, order.id));
+    expect(orderRow).toBeTruthy();
+    expect(orderRow.conversationId).toBeNull();
+    const [handoffRow] = await db.select().from(schema.handoffs).where(eq(schema.handoffs.id, handoff.id));
+    expect(handoffRow).toBeTruthy();
+    expect(handoffRow.conversationId).toBeNull();
   });
 });

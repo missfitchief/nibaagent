@@ -32,7 +32,6 @@ import { IngestPanel } from "@/app/app/knowledge/ingest";
 import { WebsiteKnowledgeForm } from "@/app/app/knowledge/website";
 import { listMembers, removeMemberAction } from "@/lib/actions/members";
 import { deleteProductAction, toggleProductAction } from "@/lib/actions/products";
-import { resolveHandoffAction } from "@/lib/actions/inbox";
 import { analyzeOldChatsAction } from "@/lib/actions/tools";
 import {
   archiveBusinessAction,
@@ -48,6 +47,8 @@ import { InviteForm } from "@/app/app/team/form";
 import { SecretsPanel } from "@/app/app/settings/secrets";
 import { AdminBusinessForm, DeleteBusinessForm, ImageRecognitionTest, ManualConnectionForm, MoveConnectionButton, TelegramTestButton, TestConnectionButton } from "./forms";
 import { AdminOrdersPanel } from "./orders-panel";
+import { ConversationsTable } from "@/app/app/conversations/conversations-table";
+import { HandoffPanel } from "@/app/app/handoff/handoff-panel";
 import { MessagesChart } from "@/app/app/analytics/messages-chart";
 import { fillDailySeries } from "@/app/app/analytics/daily-series";
 import type { BusinessHours } from "@/lib/hours";
@@ -463,33 +464,8 @@ export default async function AdminBusinessDetail({
           {convRows.length === 0 ? (
             <p className="mt-2 text-sm text-[var(--ink-soft)]">No conversations yet.</p>
           ) : (
-            <div className="mt-3 overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-xs uppercase tracking-wide text-[var(--ink-soft)]">
-                    <th className="py-2 pr-4">Customer</th>
-                    <th className="py-2 pr-4">Channel</th>
-                    <th className="py-2 pr-4">Status</th>
-                    <th className="py-2 pr-4">Last activity</th>
-                    <th className="py-2 pr-4"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {convRows.map((c) => (
-                    <tr key={c.id} className="border-t border-[var(--card-border)]">
-                      <td className="py-2 pr-4">{c.customerName || c.senderId}</td>
-                      <td className="py-2 pr-4">{c.channel}</td>
-                      <td className="py-2 pr-4"><Badge tone={c.status === "handoff" ? "warn" : c.status === "closed" ? "neutral" : "ok"}>{c.status}</Badge></td>
-                      <td className="py-2 pr-4">{c.lastMessageAt.toISOString().replace("T", " ").slice(0, 16)}</td>
-                      <td className="py-2 pr-4">
-                        <Link href={`/admin/businesses/${biz.id}/conversations/${c.id}`} className="text-sky-600 hover:underline">
-                          Otvori →
-                        </Link>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="mt-3">
+              <ConversationsTable businessId={biz.id} rows={convRows} detailBasePath={`/admin/businesses/${biz.id}/conversations`} />
             </div>
           )}
         </Card>
@@ -501,23 +477,9 @@ export default async function AdminBusinessDetail({
           {handoffRows.length === 0 ? (
             <p className="mt-2 text-sm text-[var(--ink-soft)]">No handoffs.</p>
           ) : (
-            <ul className="mt-3 space-y-2">
-              {handoffRows.map(({ h, channel, customer, sender }) => (
-                <li key={h.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--card-border)] bg-white/60 px-3 py-2 text-sm">
-                  <span className="min-w-0">
-                    <Badge tone={h.status === "open" ? "warn" : "ok"}>{h.status}</Badge> <Badge tone="info">{channel ?? "—"}</Badge> {customer || sender || "customer"}
-                    <span className="text-[var(--ink-soft)]"> — {h.reason || h.triggerWord || "handoff"}</span>
-                  </span>
-                  {h.status === "open" && (
-                    <form action={resolveHandoffAction}>
-                      <input type="hidden" name="businessId" value={biz.id} />
-                      <input type="hidden" name="id" value={h.id} />
-                      <button className="btn-primary rounded-lg px-3 py-1 text-xs font-medium">Resolve & resume bot</button>
-                    </form>
-                  )}
-                </li>
-              ))}
-            </ul>
+            <div className="mt-3">
+              <HandoffPanel businessId={biz.id} rows={handoffRows} detailBasePath={`/admin/businesses/${biz.id}/conversations`} />
+            </div>
           )}
         </Card>
       )}

@@ -148,6 +148,30 @@ describe("getRealCostWindows (cached)", () => {
     expect(calls).toHaveLength(0);
   });
 
+  it("all-time window starts at the business's own createdAt, not the Unix epoch", async () => {
+    // Real prod bug: the "all time" window used new Date(0) (1970) as its
+    // start — a business's real /admin/businesses "Open →" cost badge and
+    // the Overview "Ukupno" card both went silently blank, most likely
+    // because OpenAI's Costs API rejects (or can't reasonably page through)
+    // a 56-year-old start_time. "All time" for a business should mean
+    // "since it existed on our platform," which is also just correct.
+    await setPlatform("OPENAI_ADMIN_API_KEY", "sk-admin-1");
+    const { business } = await seedBusiness(db, "CreatedAtCo");
+    const seenStarts: number[] = [];
+    const fetchStub: CostsFetch = async ({ startTime }) => {
+      seenStarts.push(startTime.getTime());
+      return { data: [{ results: [{ amount: { value: 1 } }] }], has_more: false };
+    };
+    const now = new Date();
+    const createdAt = new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000); // 10 days ago
+    const r = await getRealCostWindows({ id: business.id, openaiApiKeyId: "key_x", realCostCache: null, createdAt }, now, 5 * 60 * 1000, fetchStub);
+    expect(r?.allTime.ok).toBe(true);
+    // The all-time fetch's start must equal createdAt, and none of the four
+    // window fetches may use the epoch.
+    expect(seenStarts).toContain(createdAt.getTime());
+    expect(seenStarts.every((t) => t > new Date(0).getTime())).toBe(true);
+  });
+
   it("fetches on a cold cache, writes the cache, then reuses it on the next call within the TTL — never re-fetching", async () => {
     await setPlatform("OPENAI_ADMIN_API_KEY", "sk-admin-1");
     const { business } = await seedBusiness(db, "CacheCo");

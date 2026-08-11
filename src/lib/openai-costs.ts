@@ -126,7 +126,7 @@ export const REAL_COST_CACHE_TTL_MS = 5 * 60 * 1000;
  * cache miss, so a "warm" page load is a single read, no external call.
  */
 export async function getRealCostWindows(
-  business: { id: string; openaiApiKeyId: string; realCostCache: unknown },
+  business: { id: string; openaiApiKeyId: string; realCostCache: unknown; createdAt?: Date | null },
   now: Date = new Date(),
   ttlMs = REAL_COST_CACHE_TTL_MS,
   costsFetch: CostsFetch = defaultCostsFetch
@@ -140,11 +140,17 @@ export async function getRealCostWindows(
   const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  // "All time" starts at this business's own creation, not the Unix epoch —
+  // a business can't have spent anything before it existed on the platform,
+  // and a 1970 start_time risks OpenAI's Costs API rejecting the range (or
+  // needing far more than our 20-page pagination cap to ever reach real,
+  // recent data) instead of just summing the months that actually matter.
+  const allTimeStart = business.createdAt ?? new Date(now.getTime() - 2 * 365 * 24 * 60 * 60 * 1000);
   const [daily, weekly, monthly, allTime] = await Promise.all([
     fetchRealOpenAiCost(business.openaiApiKeyId, dayAgo, now, costsFetch),
     fetchRealOpenAiCost(business.openaiApiKeyId, weekAgo, now, costsFetch),
     fetchRealOpenAiCost(business.openaiApiKeyId, monthAgo, now, costsFetch),
-    fetchRealOpenAiCost(business.openaiApiKeyId, new Date(0), now, costsFetch)
+    fetchRealOpenAiCost(business.openaiApiKeyId, allTimeStart, now, costsFetch)
   ]);
   const windows: RealCostWindows = { daily, weekly, monthly, allTime };
   await db()
