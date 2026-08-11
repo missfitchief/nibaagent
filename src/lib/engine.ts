@@ -809,6 +809,14 @@ export async function runEngine(businessId: string, message: string, opts: Engin
   const productConfidence = Math.min(100, Math.round(topScore * 20)); // rough 0-100 mapping
   const threshold = settings?.handoffThreshold ?? 40;
   const confidentProduct = productConfidence >= threshold;
+  // Weak/ambiguous matches: catalog items that share SOME words with the
+  // message but not confidently enough to state as fact. Real prod bug: a
+  // customer asked about a "srebrni lančić" and, because nothing matched
+  // confidently, the bot said it had no information at all and would check
+  // with the team — a dead end, even though the catalog had plausible
+  // candidates. These get surfaced (names only, never as fact) so the AI can
+  // ask which one instead of stonewalling.
+  const possibleMatches = !confidentProduct ? productMatches.filter((m) => m.score > 0).slice(0, 5) : [];
 
   // Knowledge grounding: chunked retrieval (knowledge_chunks) when the business
   // HAS chunks — only the relevant ones are injected. Businesses without chunks
@@ -829,7 +837,8 @@ export async function runEngine(businessId: string, message: string, opts: Engin
   // follow-up like "Jel imate srebreni?" scores zero against THIS message's
   // own words (see topProducts below), but it is not actually ungrounded, so
   // it must not be bounced to the canned "I don't know" reply either.
-  const hasGrounding = confidentProduct || Boolean(knowledge) || Boolean(faqList) || Boolean(convoState.productContextIds?.length);
+  const hasGrounding =
+    confidentProduct || Boolean(knowledge) || Boolean(faqList) || Boolean(convoState.productContextIds?.length) || Boolean(possibleMatches.length);
   if (!hasGrounding && strategy !== "ai_heavy") {
     const u = unknownReply(settings?.unknownBehavior ?? "offer_handoff", lang, formal);
     if (convo && u.handoff) {
@@ -913,6 +922,9 @@ export async function runEngine(businessId: string, message: string, opts: Engin
   // grounding — it never removes information the AI already had.
   const variants = topProducts.length ? await variantsFor(businessId, topProducts.map((m) => m.product.id)) : new Map();
   const productData = topProducts.map((m) => `- ${productFacts(m.product)}${variantFacts(variants.get(m.product.id) ?? [])}`).join("\n");
+  // Names only, never facts — topProducts (confident match or remembered
+  // conversation context) always wins over these weaker candidates.
+  const possibleData = !topProducts.length ? possibleMatches.map((m) => `- ${m.product.title}`).join("\n") : "";
 
   const persInstruction = lang === "en" ? "" : formal ? "Address the customer formally (persiranje: Vi/Vas)." : "Address the customer informally (ti).";
   const summary = settings?.oldChatsSummary ? `Style/knowledge summary: ${settings.oldChatsSummary.slice(0, 800)}` : "";
@@ -978,15 +990,16 @@ export async function runEngine(businessId: string, message: string, opts: Engin
     orderSteerNote,
     prevProductsNote,
     adNote,
-    "NEVER invent prices, stock, delivery terms or product facts. A price belongs to ONE specific product — if the customer is now asking about a different item than whichever one a price was quoted for earlier in this conversation, do NOT reuse that earlier number. Only state a price that is for the CURRENT item and is explicitly listed in PRODUCTS below. If the current item isn't clearly one of the products below, say the team will check and reply soon instead of guessing.",
+    "NEVER invent prices, stock, delivery terms or product facts. A price belongs to ONE specific product — if the customer is now asking about a different item than whichever one a price was quoted for earlier in this conversation, do NOT reuse that earlier number. Only state a price that is for the CURRENT item and is explicitly listed in PRODUCTS below. If the current item isn't clearly one of the products below, first check POSSIBLE MATCHES: if there are any, name them by title and ask the customer which one they mean — never invent facts about them either. Only say the team will check and reply soon when there is truly nothing in PRODUCTS or POSSIBLE MATCHES that could be it.",
     "This rule applies EQUALLY to customization/variant questions (personalization, engraving a name, finish/color options, how many charms, materials) — both confirming something IS possible and claiming something is NOT possible are equally invented if it is not explicitly stated in PRODUCTS/BUSINESS INFO/FAQ below. Never say a feature isn't offered just because you don't see it listed — the product's own title/description may already confirm it, so read them carefully first. If it genuinely isn't confirmed either way, say the team will check, instead of confidently answering yes OR no. Never claim 'the team confirmed' something — you have not spoken to anyone; only state it if it is written in the data below. When a product lists variants below, each one states ITS OWN stock in parentheses — a customer asking about one specific color/size is asking about THAT variant's own status, not the product's general stock line above it.",
     "If a photo the customer sent shows PEOPLE (a face, a portrait, a photo of children, etc.) rather than a piece of jewelry itself, do NOT say the picture 'isn't jewelry' or reject it — re-read the conversation first. A customer who has asked about an engraved/personalized item and then sends a photo of people is sending REFERENCE material for that engraving, exactly as asked. Acknowledge it warmly (e.g. 'Super, primili smo sliku za gravuru!') and continue with the order, never treat it as an invalid or unrelated image.",
     settings?.customInstructions ? `Business rules: ${settings.customInstructions.slice(0, 800)}` : "",
     summary,
     productData ? `PRODUCTS (authoritative — prices/stock/colors come from here, never invent):\n${productData}` : "",
+    possibleData ? `POSSIBLE MATCHES (not confirmed — do not state price/stock/details for these as fact; name them and ask the customer which one they mean):\n${possibleData}` : "",
     knowledge ? `BUSINESS INFO:\n${knowledge}` : "",
     faqList ? `FAQ:\n${faqList}` : "",
-    !productData && !knowledge && !faqList ? "No business data provided — say the team will check." : ""
+    !productData && !possibleData && !knowledge && !faqList ? "No business data provided — say the team will check." : ""
   ]
     .filter(Boolean)
     .join("\n\n");

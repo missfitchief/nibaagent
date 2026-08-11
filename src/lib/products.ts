@@ -79,6 +79,21 @@ export async function matchProducts(businessId: string, message: string): Promis
     const nameTokens = [...tokens(p.title)];
     const nameHits = nameTokens.filter((t) => msgTokens.some((mt) => tokenMatches(mt, t))).length;
     let score = nameHits * 2;
+    // Title words are the strongest signal, but a customer's own phrasing
+    // ("lančić", "portret", "gravura") often only appears in the description
+    // or category, never the title — real prod bug: a customer asking about
+    // a "srebrni lančić" matched nothing at all because the product's title
+    // used different wording and those words only lived in its description,
+    // so the bot lost the item entirely instead of at least surfacing it as
+    // a candidate. Weighted low so a description-only hit never outranks an
+    // actual title match.
+    const descTokens = [...tokens(p.description ?? "")];
+    const descHits = descTokens.filter((t) => msgTokens.some((mt) => tokenMatches(mt, t))).length;
+    score += descHits * 0.5;
+    if (p.category) {
+      const catTokens = [...tokens(p.category)];
+      if (catTokens.some((t) => msgTokens.some((mt) => tokenMatches(mt, t)))) score += 1;
+    }
     if (p.sku && msg.has(p.sku.toLowerCase())) score += 4;
     for (const tag of (p.tags as string[]) ?? []) if (msg.has(String(tag).toLowerCase())) score += 0.5;
     if (p.url && linkedUrls.includes(normalizeUrl(p.url))) score += 100;

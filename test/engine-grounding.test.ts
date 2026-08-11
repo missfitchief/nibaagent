@@ -160,6 +160,47 @@ describe("no confident/denied claims beyond what's grounded", () => {
   });
 });
 
+describe("weak/ambiguous product match — ask which one instead of stonewalling", () => {
+  it("a term that only appears in the description (not the title) still surfaces the product as a candidate", async () => {
+    // Real prod bug, seen live: a customer asked "Zanima me da li imate na
+    // stanju srebrni lančić na kojem bi se ugravirao portret te za koliko bi
+    // stigao na adresu?" (silver chain with an engraved portrait, price with
+    // delivery). Nothing matched confidently — matchProducts() only looked at
+    // product TITLES, and the relevant words ("lančić", "portret") lived only
+    // in the product's description — so the bot told her it had "no
+    // information" and would check with the team, a dead end, instead of
+    // recognizing the store's own matching item or asking which one she meant.
+    const { business } = await seedBusiness(db, "Nakit shop 7");
+    await db.update(schema.businesses).set({ aiMode: "live", defaultLanguage: "sr" }).where(eq(schema.businesses.id, business.id));
+    await db.insert(schema.products).values({
+      businessId: business.id,
+      title: "Personalizovana ogrlica",
+      description: "Srebrni lančić sa gravurom po želji, moguć i portret.",
+      price: "42.90",
+      currency: "BAM",
+      stockStatus: "available"
+    });
+
+    let systemSeen = "";
+    let aiCalled = false;
+    await runEngine(
+      business.id,
+      "Zanima me da li imate na stanju srebrni lančić na kojem bi se ugravirao portret te za koliko bi stigao na adresu?",
+      {
+        chatCompletion: async (input) => {
+          aiCalled = true;
+          systemSeen = input.system;
+          return { text: "Imamo srebrni lančić sa gravurom — da li mislite na personalizovanu ogrlicu?", tokens: 10 };
+        }
+      }
+    );
+    expect(aiCalled).toBe(true);
+    expect(systemSeen).toMatch(/POSSIBLE MATCHES/i);
+    expect(systemSeen).toContain("Personalizovana ogrlica");
+    expect(systemSeen).toMatch(/ask the customer which one they mean/i);
+  });
+});
+
 describe("order intent + a real question in the same first message", () => {
   it("answers the question via the AI instead of the static collection template when nothing is known yet", async () => {
     // Real prod bug, seen live: a customer's very first message was
