@@ -39,7 +39,12 @@ export const META_OAUTH_SCOPES = [
   "pages_manage_metadata",
   "pages_messaging",
   "instagram_basic",
-  "instagram_manage_messages"
+  "instagram_manage_messages",
+  // Requested alongside the page/Instagram scopes above for verified
+  // Business Portfolios (Tech Provider verification) — Meta's App Review
+  // listed it as pending even though the code never explicitly asked for
+  // it, since it wasn't in this scope string yet.
+  "business_management"
 ].join(",");
 
 export interface GraphPage {
